@@ -1,4 +1,4 @@
-src/main.d src/main.o: ../src/main.c ../src/asf.h \
+src/senBuffIOPDC.d src/senBuffIOPDC.o: ../src/senBuffIOPDC.c ../src/asf.h \
  ../src/ASF/sam/utils/compiler.h \
  c:\program\ files\ (x86)\atmel\studio\7.0\toolchain\arm\arm-gnu-toolchain\lib\gcc\arm-none-eabi\5.3.1\include\stddef.h \
  ../src/ASF/common/utils/parts.h \

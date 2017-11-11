@@ -20,6 +20,9 @@ void board_init(void)
 	/* Configure UART1 pins */
 	gpio_configure_group(PINS_UART1_PIO, PINS_UART1, PINS_UART1_FLAGS);
 
+	/* Configure USART0 pins */
+	gpio_configure_group(PINS_USART0_PIO, PINS_USART0, PINS_USART0_FLAGS);
+
 	/* Configure USART1 pins */
 	gpio_configure_group(PINS_USART1_PIO, PINS_USART1, PINS_USART1_FLAGS);
 }

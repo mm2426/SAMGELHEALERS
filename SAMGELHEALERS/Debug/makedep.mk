@@ -2,6 +2,8 @@
 # Automatically-generated file. Do not edit or delete the file
 ################################################################################
 
+src\senBuffIOPDC.c
+
 src\ASF\common\utils\stdio\read.c
 
 src\ASF\common\utils\stdio\write.c

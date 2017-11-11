@@ -29,6 +29,12 @@
 #define PINS_UART1_FLAGS        (PIO_PERIPH_A | PIO_DEFAULT)
 #define PINS_UART1_PIO			PIOB
 
+/* USART0 Definitions*/
+#define PINS_USART0_PIO			PIOA
+/** USART1 pins (RXD1, TXD1) definitions, PA21,22,24. */
+#define PINS_USART0				(PIO_PA5A_RXD0 | PIO_PA6A_TXD0)
+#define PINS_USART0_FLAGS		(PIO_PERIPH_A | PIO_DEFAULT)
+
 /* USART1 Definitions*/
 #define PINS_USART1_PIO			PIOA
 /** USART1 pins (RXD1, TXD1) definitions, PA21,22,24. */
