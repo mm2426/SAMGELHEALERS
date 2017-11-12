@@ -20,7 +20,7 @@
 #define CONSOLE_UART				UART1
 #define CONSOLE_UART_ID				ID_UART1
 /** Baudrate setting */
-#define CONSOLE_UART_BAUDRATE		115200//921600
+#define CONSOLE_UART_BAUDRATE		921600
 
 /* Sensor1 USART Interface */
 #define SEN1_USART					USART1
@@ -32,6 +32,6 @@
 #define SEN2_USART_ID				ID_USART0
 #define SEN2_BAUDRATE				9600
 
-#define SEN_USART_BUFF_SIZE			1000
+#define SEN_USART_BUFF_SIZE			200
 
 #endif // CONF_BOARD_H

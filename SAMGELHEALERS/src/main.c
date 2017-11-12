@@ -63,6 +63,10 @@ int main (void)
 	//LED PIN
 	gpio_configure_pin(PIO_PC23_IDX, (PIO_OUTPUT_1 | PIO_DEFAULT));
 
+// 	gpio_set_pin_low(PIO_PC23_IDX);
+// 	delay_ms(300);
+// 	gpio_set_pin_high(PIO_PC23_IDX);
+
 	InitConUart();
 	SenInitUsart();
 
@@ -70,8 +74,6 @@ int main (void)
 
 	while (1)
 	{
-		//printf("%d\r\n", 90);
-
 		//Call frequently to update next pointer in PDC
 		SenPdcManageBuff();
 
@@ -81,11 +83,11 @@ int main (void)
 			SenProcessData(1);
 		}
 
-// 		if(SenGetRxBytes(2))
-// 		{
-// 			//Pass sen2 data to display
-// 			SenProcessData(2);
-// 		}
+		if(SenGetRxBytes(2))
+		{
+			//Pass sen2 data to display
+			SenProcessData(2);
+		}
 
 		if(disp)
 		{
@@ -95,7 +97,7 @@ int main (void)
 			disp = 0;
 		}
 
-		//delay_ms(1);
+		//delay_ms(100);
 	}
 	
 }
@@ -117,20 +119,9 @@ void InitConUart(void)
 
 void SenProcessData(uint8_t senNo)
 {
-	/*uint8_t rxBytes;
-	if(senNo == 1)
-	{
-		rxBytes = SenGetRxBytes(1);
-	}
-	else
-	{
-		rxBytes = SenGetRxBytes(2);
-	}*/
-
 	while(SenGetRxBytes(senNo))
 	{
 		SenParseFrame(senNo, SenGetByte(senNo));
-		//rxBytes--;
 	}
 }
 

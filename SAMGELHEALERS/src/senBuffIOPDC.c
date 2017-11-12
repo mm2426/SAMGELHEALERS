@@ -43,36 +43,34 @@
 	 usart_init_rs232(SEN1_USART, &usart_console_settings,
 	 sysclk_get_peripheral_hz());
 
-	 // 	/* Enable the peripheral clock in the PMC. */
-	 // 	sysclk_enable_peripheral_clock(SEN2_USART_ID);
-	 //
-	 // 	/* Configure USART in RS485 mode. */
-	 // 	usart_init_rs232(SEN2_USART, &usart_console_settings,
-	 // 	sysclk_get_peripheral_hz());
+	/* Enable the peripheral clock in the PMC. */
+	sysclk_enable_peripheral_clock(SEN2_USART_ID);
+	/* Configure USART in RS485 mode. */
+	usart_init_rs232(SEN2_USART, &usart_console_settings,
+		sysclk_get_peripheral_hz());
 
 	 /* Enable RX function. */
 	 usart_disable_tx(SEN1_USART);
 	 usart_enable_rx(SEN1_USART);
-// 	 usart_disable_tx(SEN2_USART);
-// 	 usart_enable_rx(SEN2_USART);
+	 usart_disable_tx(SEN2_USART);
+	 usart_enable_rx(SEN2_USART);
 
 	/* Get board USART PDC base address and enable receiver and transmitter. */
 	sen1PdcBase = usart_get_pdc_base(SEN1_USART);
 	pdc_enable_transfer(sen1PdcBase, PERIPH_PTCR_RXTEN);
 
-// 	sen2PdcBase = usart_get_pdc_base(SEN2_USART);
-// 	pdc_enable_transfer(sen2PdcBase, PERIPH_PTCR_RXTEN);
+	sen2PdcBase = usart_get_pdc_base(SEN2_USART);
+	pdc_enable_transfer(sen2PdcBase, PERIPH_PTCR_RXTEN);
 	
 	pdcPkt.ul_addr = (uint32_t) sen1Buff;
 	pdcPkt.ul_size = SEN_USART_BUFF_SIZE;
 	//For circular buffer operation
 	pdc_rx_init(sen1PdcBase, &pdcPkt, &pdcPkt);
 
-// 	pdcPkt1.ul_addr = (uint32_t) sen2Buff1;
-// 	pdcPkt1.ul_size = SEN_USART_BUFF_SIZE;
-// 	pdcPkt2.ul_addr = (uint32_t) sen2Buff2;
-// 	pdcPkt2.ul_size = SEN_USART_BUFF_SIZE;
-// 	pdc_rx_init(sen2PdcBase, &pdcPkt1, &pdcPkt2);
+	pdcPkt.ul_addr = (uint32_t) sen2Buff;
+	pdcPkt.ul_size = SEN_USART_BUFF_SIZE;
+	//For circular buffer operation
+	pdc_rx_init(sen2PdcBase, &pdcPkt, &pdcPkt);
 
  }
 
@@ -91,16 +89,16 @@
 	sen1Wptr = SEN_USART_BUFF_SIZE - pdc_read_rx_counter(sen1PdcBase);
 
 	/* If PDC receive next pointer is 0 */
-// 	if(pdc_read_rx_next_counter(sen2PdcBase)==0)
-// 	{
-// 		/* If code reaches here it means current buffer is full and 
-// 		next buffer ptr is assigned to current buffer ptr by PDC. */
-// 		pdcPkt.ul_addr = (uint32_t) sen2Buff;
-// 		pdcPkt.ul_size = SEN_USART_BUFF_SIZE;
-// 		//For circular buffer operation infinitely
-// 		pdc_rx_init(sen2PdcBase, NULL, &pdcPkt);
-// 	}
-// 	sen2Wptr = SEN_USART_BUFF_SIZE - pdc_read_rx_counter(sen2PdcBase);
+	if(pdc_read_rx_next_counter(sen2PdcBase)==0)
+	{
+		/* If code reaches here it means current buffer is full and 
+		next buffer ptr is assigned to current buffer ptr by PDC. */
+		pdcPkt.ul_addr = (uint32_t) sen2Buff;
+		pdcPkt.ul_size = SEN_USART_BUFF_SIZE;
+		//For circular buffer operation infinitely
+		pdc_rx_init(sen2PdcBase, NULL, &pdcPkt);
+	}
+	sen2Wptr = SEN_USART_BUFF_SIZE - pdc_read_rx_counter(sen2PdcBase);
  }
  
  /* Returns number of bytes in Rx buffer */
@@ -111,7 +109,7 @@
 	{
 		if(sen1Wptr>sen1Rptr)
 		{
-			recvdBytes = sen1Wptr;
+			recvdBytes = (sen1Wptr-sen1Rptr);
 		}
 		else if(sen1Wptr<sen1Rptr)
 		{
@@ -126,7 +124,7 @@
 	{
 		if(sen2Wptr>sen2Rptr)
 		{
-			recvdBytes = sen2Wptr;
+			recvdBytes = (sen2Wptr-sen2Rptr);
 		}
 		else if(sen2Wptr<sen2Rptr)
 		{
