@@ -555,6 +555,12 @@
     <Folder Include="src\config\" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="src\cBuff.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="src\cBuff.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="src\senBuffIOPDC.c">
       <SubType>compile</SubType>
     </Compile>

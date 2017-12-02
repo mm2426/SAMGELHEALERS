@@ -15,7 +15,7 @@
  /* These pointers point to the buffer which is to be used for processing. */
  //uint8_t *sen1Bptr, *sen2Bptr;
  /* Read and write pointers, these index the buffers */
- uint8_t sen1Rptr = 0, sen2Rptr = 0, sen1Wptr = 0, sen2Wptr = 0;
+ uint16_t sen1Rptr = 0, sen2Rptr = 0, sen1Wptr = 0, sen2Wptr = 0;
  /* These flags indicate whether buff1/2 is in use by PDC currently */
  //uint8_t sen1BFlag = 0, sen2BFlag = 0;
 

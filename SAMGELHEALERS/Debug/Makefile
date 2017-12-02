@@ -91,6 +91,7 @@ SUBDIRS :=  \
 
 # Add inputs and outputs from these tool invocations to the build variables 
 C_SRCS +=  \
+../src/cBuff.c \
 ../src/senBuffIOPDC.c \
 ../src/ASF/common/utils/stdio/read.c \
 ../src/ASF/common/utils/stdio/write.c \
@@ -120,6 +121,7 @@ ASM_SRCS +=
 
 
 OBJS +=  \
+src/cBuff.o \
 src/senBuffIOPDC.o \
 src/ASF/common/utils/stdio/read.o \
 src/ASF/common/utils/stdio/write.o \
@@ -142,6 +144,7 @@ src/ASF/sam/utils/syscalls/gcc/syscalls.o \
 src/main.o
 
 OBJS_AS_ARGS +=  \
+src/cBuff.o \
 src/senBuffIOPDC.o \
 src/ASF/common/utils/stdio/read.o \
 src/ASF/common/utils/stdio/write.o \
@@ -164,6 +167,7 @@ src/ASF/sam/utils/syscalls/gcc/syscalls.o \
 src/main.o
 
 C_DEPS +=  \
+src/cBuff.d \
 src/senBuffIOPDC.d \
 src/ASF/common/utils/stdio/read.d \
 src/ASF/common/utils/stdio/write.d \
@@ -186,6 +190,7 @@ src/ASF/sam/utils/syscalls/gcc/syscalls.d \
 src/main.d
 
 C_DEPS_AS_ARGS +=  \
+src/cBuff.d \
 src/senBuffIOPDC.d \
 src/ASF/common/utils/stdio/read.d \
 src/ASF/common/utils/stdio/write.d \
@@ -222,6 +227,8 @@ LINKER_SCRIPT_DEP+=  \
 
 
 # AVR32/GNU C Compiler
+
+
 
 
 

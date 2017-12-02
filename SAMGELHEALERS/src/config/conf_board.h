@@ -17,10 +17,10 @@
 #define BOARD_OSC_STARTUP_US		(15625UL)
 
 /** Console UART Interface */
-#define CONSOLE_UART				UART1
-#define CONSOLE_UART_ID				ID_UART1
+#define DISP_UART					UART1
+#define DISP_UART_ID				ID_UART1
 /** Baudrate setting */
-#define CONSOLE_UART_BAUDRATE		921600
+#define DISP_UART_BAUDRATE			921600
 
 /* Sensor1 USART Interface */
 #define SEN1_USART					USART1

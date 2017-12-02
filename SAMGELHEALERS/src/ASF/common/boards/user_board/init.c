@@ -14,6 +14,9 @@
 
 void board_init(void)
 {
+	/* Disable the watchdog */
+	WDT->WDT_MR = WDT_MR_WDDIS;
+
 	/* Init IO Port service to enable configuring pins */
 	ioport_init();
 
