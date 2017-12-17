@@ -43,35 +43,51 @@
 	 usart_init_rs232(SEN1_USART, &usart_console_settings,
 	 sysclk_get_peripheral_hz());
 
-	/* Enable the peripheral clock in the PMC. */
-	sysclk_enable_peripheral_clock(SEN2_USART_ID);
-	/* Configure USART in RS485 mode. */
-	usart_init_rs232(SEN2_USART, &usart_console_settings,
-		sysclk_get_peripheral_hz());
-
 	 /* Enable RX function. */
 	 usart_disable_tx(SEN1_USART);
 	 usart_enable_rx(SEN1_USART);
-	 usart_disable_tx(SEN2_USART);
-	 usart_enable_rx(SEN2_USART);
 
-	/* Get board USART PDC base address and enable receiver and transmitter. */
-	sen1PdcBase = usart_get_pdc_base(SEN1_USART);
-	pdc_enable_transfer(sen1PdcBase, PERIPH_PTCR_RXTEN);
+	 /* Get board USART PDC base address and enable receiver and transmitter. */
+	 sen1PdcBase = usart_get_pdc_base(SEN1_USART);
+	 pdc_enable_transfer(sen1PdcBase, PERIPH_PTCR_RXTEN);
 
-	sen2PdcBase = usart_get_pdc_base(SEN2_USART);
+	 pdcPkt.ul_addr = (uint32_t) sen1Buff;
+	 pdcPkt.ul_size = SEN_USART_BUFF_SIZE;
+	 //For circular buffer operation
+	 pdc_rx_init(sen1PdcBase, &pdcPkt, &pdcPkt);
+
+	 #if defined(BOARD_XPLND)
+		/* Enable the peripheral clock in the PMC. */
+		sysclk_enable_peripheral_clock(SEN2_USART_ID);
+		/* Configure USART in RS485 mode. */
+		usart_init_rs232(SEN2_USART, &usart_console_settings,
+			sysclk_get_peripheral_hz());
+
+		 usart_disable_tx(SEN2_USART);
+		 usart_enable_rx(SEN2_USART);
+
+		sen2PdcBase = usart_get_pdc_base(SEN2_USART);
+	#elif defined(BOARD_NIRA91)
+		const usart_serial_options_t uart_serial_options = {
+			.baudrate = SEN2_BAUDRATE,
+			.paritytype = UART_MR_PAR_NO
+		};
+
+		sysclk_enable_peripheral_clock(SEN2_UART_ID);
+		stdio_serial_init(SEN2_UART, &uart_serial_options);
+		
+		uart_enable_rx(SEN2_UART);
+		uart_disable_tx(SEN2_UART);
+
+		sen2PdcBase = uart_get_pdc_base(SEN2_UART);
+	#endif
+
 	pdc_enable_transfer(sen2PdcBase, PERIPH_PTCR_RXTEN);
-	
-	pdcPkt.ul_addr = (uint32_t) sen1Buff;
-	pdcPkt.ul_size = SEN_USART_BUFF_SIZE;
-	//For circular buffer operation
-	pdc_rx_init(sen1PdcBase, &pdcPkt, &pdcPkt);
 
 	pdcPkt.ul_addr = (uint32_t) sen2Buff;
 	pdcPkt.ul_size = SEN_USART_BUFF_SIZE;
 	//For circular buffer operation
 	pdc_rx_init(sen2PdcBase, &pdcPkt, &pdcPkt);
-
  }
 
  void SenPdcManageBuff(void)

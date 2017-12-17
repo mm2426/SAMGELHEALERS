@@ -24,6 +24,7 @@
 	{
 		recvdBytes = 0;
 	}
+	return recvdBytes;
  }
  
  CBUFF_TYPE CBuffReadByte(struct cBuff_t *cbuff)

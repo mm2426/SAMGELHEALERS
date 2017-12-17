@@ -20,6 +20,9 @@ void board_init(void)
 	/* Init IO Port service to enable configuring pins */
 	ioport_init();
 
+	/* Configure UART0 pins */
+	gpio_configure_group(PINS_UART0_PIO, PINS_UART0, PINS_UART0_FLAGS);
+
 	/* Configure UART1 pins */
 	gpio_configure_group(PINS_UART1_PIO, PINS_UART1, PINS_UART1_FLAGS);
 
@@ -28,4 +31,17 @@ void board_init(void)
 
 	/* Configure USART1 pins */
 	gpio_configure_group(PINS_USART1_PIO, PINS_USART1, PINS_USART1_FLAGS);
+
+	//Configure TWI0 Pins
+	gpio_configure_group(PINS_TWI0_PIO, PINS_TWI0, PINS_TWI0_FLAGS);
+
+	//Configure Solenoid Pins
+	gpio_configure_pin(PIN_INAVALVE1_IDX, (PIO_OUTPUT_0 | PIO_DEFAULT));
+	gpio_configure_pin(PIN_INAVALVE2_IDX, (PIO_OUTPUT_0 | PIO_DEFAULT));
+
+	//Configure Air Pump SSRly
+	gpio_configure_pin(PIN_AIR_PUMP_IDX, (PIO_OUTPUT_0 | PIO_DEFAULT));
+
+	//Configure LED Pins
+	gpio_configure_pin(PIN_DEBUGLED_IDX, (PIO_OUTPUT_0 | PIO_DEFAULT));
 }

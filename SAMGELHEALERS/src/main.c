@@ -45,7 +45,10 @@
 #include <string.h>
 #include "senBuffIOPDC.h"
 #include "cBuff.h"
+#include "pressureSens.h"
 
+void InitPeripherals(void);
+void InitTWI(void);
 void InitSystick(void);
 void InitDispUart(void);
 void SenProcessData(uint8_t senNo);
@@ -54,6 +57,8 @@ uint8_t GetTrigger(uint8_t currPleath);
 void ActivateValves(void);
 void SendDispData(void);
 uint8_t CalcChkSum (uint8_t * buff, uint8_t len);
+void WriteEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
+void ReadEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
 
 enum rxStates 
 {
@@ -100,14 +105,42 @@ int main (void)
 	board_init();
 	delay_init(sysclk_get_cpu_hz());
 
-	//LED PIN
-	gpio_configure_pin(PIO_PC23_IDX, (PIO_OUTPUT_1 | PIO_DEFAULT));
+	InitPeripherals();
 
-// 	gpio_set_pin_low(PIO_PC23_IDX);
-// 	delay_ms(300);
-// 	gpio_set_pin_high(PIO_PC23_IDX);
+	/* Initialize pressure in reservoir and cuff */
+
+	/*dispPkt[0] = 'H';
+	dispPkt[1] = 'e';
+	dispPkt[2] = 'l';
+	dispPkt[3] = 'l';
+	dispPkt[4] = 'o';
+	dispPkt[5] = '\r';
+	dispPkt[6] = '\n';*/
 	
-	InitDispUart();
+	while(1)
+	{
+		//gpio_set_pin_low(PIO_PA16_IDX);
+		
+		//Transmit 7 Bytes using PDC
+// 		dispPdcPkt.ul_addr = (uint32_t) dispPkt;
+// 		dispPdcPkt.ul_size = 7;
+// 		pdc_tx_init(dispUartPdcBase, &dispPdcPkt, NULL);
+
+		//ReadPressureSen(BOARD_TWI, ADDR_PSEN1, dispPkt);
+		//ReadEEPROM(BOARD_TWI,0x50,0x00,dispPkt,4);
+		//WriteEEPROM(BOARD_TWI,0x50,0x00,dispPkt,4);
+
+		gpio_set_pin_high(PIO_PA16_IDX);
+		gpio_set_pin_high(PIN_INAVALVE1_IDX);
+		//gpio_set_pin_high(PIN_INAVALVE2_IDX);
+		gpio_set_pin_high(PIN_AIR_PUMP_IDX);
+		delay_ms(5000);
+// 		gpio_set_pin_low(PIN_INAVALVE2_IDX);
+// 		gpio_set_pin_low(PIN_INAVALVE1_IDX);
+		gpio_set_pin_low(PIN_AIR_PUMP_IDX);
+		gpio_set_pin_low(PIO_PA16_IDX);
+		delay_ms(2000);
+	}
 
 	/* Init. variables */
 	memset(&sen1Data, 0, sizeof(struct senData));
@@ -119,21 +152,11 @@ int main (void)
 	sen2State.state = q0;
 	sen2State.sum = 0;
 	sen2State.ctr = 0;
-	
-	/* Initialize pressure in reservoir and cuff */
-
-	/* Initialize sensor USARTs */
-	SenInitUsart();
-
-	/* Initialize Systick timer to generate interrupts every 10 ms */
-	InitSystick();
-
-	/* Enable WDT */
 
 	while (1)
 	{
 		/* Toggle LED GPIO */
-		gpio_toggle_pin(PIO_PC23_IDX);
+		//gpio_toggle_pin(PIO_PC23_IDX);
 
 		/* Emergency switch action */
 		
@@ -175,6 +198,43 @@ void SysTick_Handler(void)
 	tickCount++;
 }
 
+void InitPeripherals(void)
+{
+
+	/* Initialize Display UART */
+	InitDispUart();
+
+	/* Initialize sensor USARTs */
+	SenInitUsart();
+
+	/* Init TWI */
+	InitTWI();
+
+	/* Initialize Systick timer to generate interrupts every 10 ms */
+	InitSystick();
+
+	/* Enable WDT */
+
+}
+
+void InitTWI(void)
+{
+	twi_options_t twiSettings = {
+		sysclk_get_peripheral_hz(),
+		100000,
+		0,
+		0
+	};
+	/* Enable the peripheral clock in the PMC. */
+	sysclk_enable_peripheral_clock(BOARD_TWI_ID);
+
+	/* Enable TWI master mode */
+	twi_enable_master_mode(BOARD_TWI);
+
+	/* Initialize TWI peripheral */
+	twi_master_init(BOARD_TWI, &twiSettings);
+}
+
 /**
  *  Configure system tick to generate an interrupt every 10 ms.
  */
@@ -195,19 +255,48 @@ void InitSystick(void)
  */
 void InitDispUart(void)
 {
-	const usart_serial_options_t uart_serial_options = {
-		.baudrate = DISP_UART_BAUDRATE,
-		.paritytype = UART_MR_PAR_NO
-	};
+	#if defined(BOARD_XPLND)
+		const usart_serial_options_t uart_serial_options = {
+			.baudrate = DISP_UART_BAUDRATE,
+			.paritytype = UART_MR_PAR_NO
+		};
 
-	sysclk_enable_peripheral_clock(DISP_UART_ID);
-	stdio_serial_init(DISP_UART, &uart_serial_options);
+		sysclk_enable_peripheral_clock(DISP_UART_ID);
+		stdio_serial_init(DISP_UART, &uart_serial_options);
 	
-	uart_enable_tx(DISP_UART);
-	uart_disable_rx(DISP_UART);
+		uart_enable_tx(DISP_UART);
+		uart_disable_rx(DISP_UART);
 
-	dispUartPdcBase = uart_get_pdc_base(DISP_UART);
-	pdc_enable_transfer(dispUartPdcBase, PERIPH_PTCR_TXTEN);
+		dispUartPdcBase = uart_get_pdc_base(DISP_UART);
+		pdc_enable_transfer(dispUartPdcBase, PERIPH_PTCR_TXTEN);
+	#elif defined(BOARD_NIRA91)
+		const sam_usart_opt_t usart_console_settings = {
+			DISP_UART_BAUDRATE,
+			US_MR_CHRL_8_BIT,
+			US_MR_PAR_NO,
+			US_MR_NBSTOP_1_BIT,
+			US_MR_CHMODE_NORMAL,
+			/* This field is only used in IrDA mode. */
+			0
+		};
+
+		/* Enable the peripheral clock in the PMC. */
+		sysclk_enable_peripheral_clock(DISP_USART_ID);
+
+		/* Configure USART in RS485 mode. */
+		usart_init_rs232(DISP_USART, &usart_console_settings,
+		sysclk_get_peripheral_hz());
+
+		/* Enable TX function. */
+		usart_disable_rx(DISP_USART);
+		usart_enable_tx(DISP_USART);
+
+		/* Get board USART PDC base address and enable receiver and transmitter. */
+		dispUartPdcBase = usart_get_pdc_base(DISP_USART);
+		pdc_enable_transfer(dispUartPdcBase, PERIPH_PTCR_TXTEN);
+
+	#endif
+
 }
 
 void SenProcessData(uint8_t senNo)
@@ -411,7 +500,11 @@ void SendDispData(void)
 	uint8_t readS2 = 0;
 
 	/* If previous transfer not complete, return */
-	if (!(uart_get_status(DISP_UART) & UART_SR_ENDTX)) 
+	#if defined(BOARD_XPLND)
+		if (!(uart_get_status(DISP_UART) & UART_SR_ENDTX)) 
+	#elif defined(BOARD_NIRA91)
+		if (!(usart_get_status(DISP_USART) & US_CSR_ENDTX)) 
+	#endif
 	{
 		return;
 	}
@@ -839,4 +932,36 @@ uint8_t CalcChkSum (uint8_t * buff, uint8_t len)
 		sum += buff[i];
 	}
 	return sum;	
+}
+
+void WriteEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen)
+{
+	twi_packet_t pkt;
+	/* Set Device Address */
+	pkt.chip = chipAddr;
+	/* Page Number */
+	pkt.addr[0] = memPage;
+	/* No Address Bytes to be clocked */
+	pkt.addr_length = 1;
+	/* Address of buffer where recvd data is to be stored */
+	pkt.buffer = dPkt;
+	/* No of bytes to read */
+	pkt.length = dLen;
+	twi_master_write(Port, &pkt);
+}
+
+void ReadEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen)
+{
+	twi_packet_t pkt;
+	/* Set Device Address */
+	pkt.chip = chipAddr;
+	/* Page Number */
+	pkt.addr[0] = memPage;
+	/* No Address Bytes to be clocked */
+	pkt.addr_length = 1;
+	/* Address of buffer where recvd data is to be stored */
+	pkt.buffer = dPkt;
+	/* No of bytes to read */
+	pkt.length = dLen;
+	twi_master_read(Port, &pkt);
 }

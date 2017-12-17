@@ -4,6 +4,8 @@
 
 src\cBuff.c
 
+src\pressureSens.c
+
 src\senBuffIOPDC.c
 
 src\ASF\common\utils\stdio\read.c

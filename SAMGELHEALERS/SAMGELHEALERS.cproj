@@ -5,7 +5,7 @@
     <ProjectVersion>7.0</ProjectVersion>
     <ToolchainName>com.Atmel.ARMGCC.C</ToolchainName>
     <ProjectGuid>dce6c7e3-ee26-4d79-826b-08594b9ad897</ProjectGuid>
-    <avrdevice>ATSAM4SD32C</avrdevice>
+    <avrdevice>ATSAM4S4B</avrdevice>
     <avrdeviceseries>sam4s</avrdeviceseries>
     <OutputType>Executable</OutputType>
     <Language>C</Language>
@@ -226,14 +226,14 @@
         <board id="board.user_board.sam4s" value="Add" config="" content-id="Atmel.ASF" />
       </framework-data>
     </AsfFrameworkConfig>
-    <avrtool>com.atmel.avrdbg.tool.edbg</avrtool>
-    <avrtoolserialnumber>ATML1803050200010504</avrtoolserialnumber>
-    <avrdeviceexpectedsignature>0x29A70EE0</avrdeviceexpectedsignature>
+    <avrtool>com.atmel.avrdbg.tool.atmelice</avrtool>
+    <avrtoolserialnumber>J41800081167</avrtoolserialnumber>
+    <avrdeviceexpectedsignature>0x289B09E0</avrdeviceexpectedsignature>
     <avrtoolinterface>SWD</avrtoolinterface>
     <com_atmel_avrdbg_tool_edbg>
       <ToolOptions>
         <InterfaceProperties>
-          <SwdClock>20000000</SwdClock>
+          <SwdClock>2000000</SwdClock>
         </InterfaceProperties>
         <InterfaceName>SWD</InterfaceName>
       </ToolOptions>
@@ -241,7 +241,31 @@
       <ToolNumber>ATML1803050200010504</ToolNumber>
       <ToolName>EDBG</ToolName>
     </com_atmel_avrdbg_tool_edbg>
-    <avrtoolinterfaceclock>20000000</avrtoolinterfaceclock>
+    <avrtoolinterfaceclock>2000000</avrtoolinterfaceclock>
+    <com_atmel_avrdbg_tool_atmelice>
+      <ToolOptions>
+        <InterfaceProperties>
+          <SwdClock>2000000</SwdClock>
+        </InterfaceProperties>
+        <InterfaceName>SWD</InterfaceName>
+      </ToolOptions>
+      <ToolType>com.atmel.avrdbg.tool.atmelice</ToolType>
+      <ToolNumber>J41800081167</ToolNumber>
+      <ToolName>Atmel-ICE</ToolName>
+    </com_atmel_avrdbg_tool_atmelice>
+    <custom>
+      <ToolOptions>
+        <InterfaceProperties>
+          <SwdClock>2000000</SwdClock>
+        </InterfaceProperties>
+        <InterfaceName>
+        </InterfaceName>
+      </ToolOptions>
+      <ToolType>custom</ToolType>
+      <ToolNumber>
+      </ToolNumber>
+      <ToolName>Custom Programming Tool</ToolName>
+    </custom>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
     <ToolchainSettings>
@@ -384,6 +408,7 @@
       <Value>BOARD=USER_BOARD</Value>
       <Value>ARM_MATH_CM4=true</Value>
       <Value>printf=iprintf</Value>
+      <Value>BOARD_NIRA91</Value>
     </ListValues>
   </armgcc.compiler.symbols.DefSymbols>
   <armgcc.compiler.directories.IncludePaths>
@@ -559,6 +584,12 @@
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="src\cBuff.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="src\pressureSens.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="src\pressureSens.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="src\senBuffIOPDC.c">

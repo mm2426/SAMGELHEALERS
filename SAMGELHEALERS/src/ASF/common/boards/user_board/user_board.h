@@ -41,4 +41,20 @@
 #define PINS_USART1				(PIO_PA21A_RXD1 | PIO_PA22A_TXD1)
 #define PINS_USART1_FLAGS		(PIO_PERIPH_A | PIO_DEFAULT)
 
+/* TWI0 Definitions*/
+#define PINS_TWI0_PIO		PIOA
+/* TWI0 pins (TWCK0 & TWD0) definitions, PA4, 3. */
+#define PINS_TWI0			(PIO_PA4A_TWCK0 | PIO_PA3A_TWD0)
+#define PINS_TWI0_FLAGS		(PIO_PERIPH_A | PIO_DEFAULT)
+
+/* Solenoid Valve Pins */
+#define PIN_INAVALVE1_IDX		PIO_PA13_IDX
+#define PIN_INAVALVE2_IDX		PIO_PA14_IDX
+
+/* Air Pump SSRly */
+#define PIN_AIR_PUMP_IDX		PIO_PA24_IDX
+
+/* Debug LED Pin */
+#define PIN_DEBUGLED_IDX		PIO_PA16_IDX
+
 #endif // USER_BOARD_H
