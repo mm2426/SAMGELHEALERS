@@ -39,7 +39,7 @@
 #define PLEATH_DIFF_CYCLES		2
 
 /* System tick frequency in Hz. */
-#define SYS_TICK_FREQ        100
+#define SYS_TICK_FREQ        1000
 
 #include <asf.h>
 #include <string.h>
@@ -47,27 +47,21 @@
 #include "cBuff.h"
 #include "pressureSens.h"
 
-void InitPeripherals(void);
-void InitTWI(void);
-void InitSystick(void);
-void InitDispUart(void);
-void SenProcessData(uint8_t senNo);
-void SenParseFrame(uint8_t senNo, uint8_t data);
-uint8_t GetTrigger(uint8_t currPleath);
-void ActivateValves(void);
-void SendDispData(void);
-uint8_t CalcChkSum (uint8_t * buff, uint8_t len);
-void WriteEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
-void ReadEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
-
-enum rxStates 
+enum rxStates
 {
 	q0, q1, q2, q3, q4, q5
 };
 
 enum valveStates
 {
-	allOff, trigWait, cuffTighten, pCtrl, cuffHold, cuffRelease
+	//allOff, trigWait, cuffTighten, pCtrl, cuffHold, cuffRelease
+	s1CloseS2Close, s1CloseS2Open, s1OpenS2Close, s1OpenS2Open
+};
+enum valveStates valveState = s1CloseS2Close;
+
+enum ctrlStates
+{
+	fillCuff, waitCycles, holdCuff, releaseCuff, dummyState
 };
 
 struct senState
@@ -82,13 +76,29 @@ struct senData
 	struct cBuff_t pleathBuff;
 }sen1Data, sen2Data;
 
+void InitPeripherals(void);
+void InitTWI(void);
+void InitSystick(void);
+void InitDispUart(void);
+void SenProcessData(uint8_t senNo);
+void SenParseFrame(uint8_t senNo, uint8_t data);
+uint8_t GetTrigger(uint8_t currPleath);
+void ActivateValves(void);
+void SetValveState(enum valveStates st);
+void SendDispData(void);
+uint8_t CalcChkSum (uint8_t * buff, uint8_t len);
+void WriteEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
+void ReadEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
+
+
 struct cBuff_t trigBuff;
 uint8_t trigFound = 0, prevPleath = 0, tempPleath = 0;
 uint8_t rising = 1;
-enum valveStates ctrlState = allOff;
+enum ctrlStates ctrlState = fillCuff;
+enum ctrlStates nextCtrlState = waitCycles;
 
 /* Systick counter */
-uint32_t tickCount = 0;
+uint32_t tickCount = 0, tickDur = 0;
 
 /* Buffers used by display routines */
 uint8_t dispPkt[150];
@@ -96,6 +106,8 @@ uint8_t dispPkt[150];
 /* Pointer to Disp UART PDC register base */
 Pdc *dispUartPdcBase;
 pdc_packet_t dispPdcPkt;
+
+uint32_t fillDur = 100, holdDur = 100, dummyDur = 600; 
 
 int main (void)
 {
@@ -107,7 +119,19 @@ int main (void)
 
 	InitPeripherals();
 
-	/* Initialize pressure in reservoir and cuff */
+	SetValveState(s1CloseS2Close);
+
+	/* Initialize pressure in reservoir */
+	tickCount = 0;
+	gpio_set_pin_high(PIN_AIR_PUMP_IDX);
+	while (tickCount<=60000);
+	//gpio_set_pin_low(PIN_AIR_PUMP_IDX);
+
+// 	trigFound = 1;
+// 	while(1)
+// 	{
+// 		ActivateValves();
+// 	}
 
 	/*dispPkt[0] = 'H';
 	dispPkt[1] = 'e';
@@ -117,7 +141,7 @@ int main (void)
 	dispPkt[5] = '\r';
 	dispPkt[6] = '\n';*/
 	
-	while(1)
+	/*while(1)
 	{
 		//gpio_set_pin_low(PIO_PA16_IDX);
 		
@@ -132,15 +156,15 @@ int main (void)
 
 		gpio_set_pin_high(PIO_PA16_IDX);
 		gpio_set_pin_high(PIN_INAVALVE1_IDX);
-		//gpio_set_pin_high(PIN_INAVALVE2_IDX);
+		gpio_set_pin_low(PIN_INAVALVE2_IDX);
 		gpio_set_pin_high(PIN_AIR_PUMP_IDX);
 		delay_ms(5000);
-// 		gpio_set_pin_low(PIN_INAVALVE2_IDX);
-// 		gpio_set_pin_low(PIN_INAVALVE1_IDX);
+		gpio_set_pin_low(PIN_INAVALVE1_IDX);
+		gpio_set_pin_high(PIN_INAVALVE2_IDX);
 		gpio_set_pin_low(PIN_AIR_PUMP_IDX);
 		gpio_set_pin_low(PIO_PA16_IDX);
-		delay_ms(2000);
-	}
+		delay_ms(5000);
+	}*/
 
 	/* Init. variables */
 	memset(&sen1Data, 0, sizeof(struct senData));
@@ -476,22 +500,65 @@ void ActivateValves(void)
 	{
 		switch(ctrlState)
 		{
-			case allOff:
+			case fillCuff:
+				SetValveState(s1OpenS2Close);
 				tickCount = 0;
-				ctrlState = trigWait;
+				tickDur = fillDur;
+				ctrlState = waitCycles;
+				nextCtrlState = holdCuff;
 				break;
-			case trigWait:
-				/* If 200 ms elapsed */
-				if(tickCount>=200)
+			case waitCycles:
+				if(tickCount>=tickDur)
 				{
+					ctrlState = nextCtrlState;
 					tickCount = 0;
-					trigFound = 0;
-					ctrlState = allOff;
+					tickDur = 0;
 				}
+				break;
+			case holdCuff:
+				SetValveState(s1CloseS2Close);
+				tickDur = holdDur;
+				ctrlState = waitCycles;
+				nextCtrlState = releaseCuff;
+				break;
+			case releaseCuff:
+				SetValveState(s1CloseS2Open);
+				ctrlState = fillCuff;
+				/*ctrlState = dummyState;
+				tickDur = dummyDur;
+				ctrlState = waitCycles;
+				nextCtrlState = dummyState;*/
+				trigFound = 0;
+				break;
+			case dummyState:
+				ctrlState = fillCuff;
 				break;
 			default:
 				break;
 		}
+	}
+}
+
+void SetValveState(enum valveStates st)
+{
+	switch (st)
+	{
+		case s1CloseS2Close:
+			gpio_set_pin_low(PIN_INAVALVE1_IDX);
+			gpio_set_pin_low(PIN_INAVALVE2_IDX);
+			break;
+		case s1CloseS2Open:
+			gpio_set_pin_low(PIN_INAVALVE1_IDX);
+			gpio_set_pin_high(PIN_INAVALVE2_IDX);
+			break;
+		case s1OpenS2Close:
+			gpio_set_pin_high(PIN_INAVALVE1_IDX);
+			gpio_set_pin_low(PIN_INAVALVE2_IDX);
+			break;
+		case s1OpenS2Open:
+			gpio_set_pin_high(PIN_INAVALVE1_IDX);
+			gpio_set_pin_high(PIN_INAVALVE2_IDX);
+			break;
 	}
 }
 
