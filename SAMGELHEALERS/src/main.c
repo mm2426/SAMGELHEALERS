@@ -32,14 +32,38 @@
 #define BIT_IS_SET(a,b)\
 	(a&(1<<b))
 
-//#define PLEATH_BUFF_SIZE	50
+/* Size of S1 and S2 pleath buffers */
 #define CBUFF_SIZE				100
-
+/* Rate of change (used in trigger calculation algo) */
 #define PLEATH_DIFF_THRESHOLD	3
+/* No of consecutive cycles (used in trigger calculation algo) */
 #define PLEATH_DIFF_CYCLES		2
+/* Pressure regulation is done after trigger is found */
+#define CTRL_TYPE_PRESSURE		1
+/* Run peak detection algorithm for finding trigger */
+#define ALGO_TYPE_PK_DET		1
+/* Enable algorithm test mode (disables valve operation) */
+//#define ALGO_TEST_MODE_EN		1
+/* Display average time between pleath cycles (disables sending of pleath data) */
+#define CYCLE_AVG_DISP_EN		1
+/* Maximum pressure to be maintained in the reservoir */
+#define MAX_RESERVOIR_P			10.0f
+#define CUTOFF_RESERVOIR_P		9.5f
+#ifndef CTRL_TYPE_PRESSURE
+	/* Default time required to fill the cuff */
+	#define DEFAULT_FILL_DUR	100	
+#else
+	/* Default pressure set point value in PSI */
+	#define DEFAULT_PRESSURE	4.0f
+#endif
+/* Default Cuff hold duration in ms */
+#define DEFAULT_DURATION		100
+
+/* Default delay (to be subtracted from avg cycle time (when pk det.) / to be added after trigger found) in ms */
+#define DEFAULT_DELAY			100
 
 /* System tick frequency in Hz. */
-#define SYS_TICK_FREQ        1000
+#define SYS_TICK_FREQ			1000
 
 #include <asf.h>
 #include <string.h>
@@ -54,20 +78,23 @@ enum rxStates
 
 enum valveStates
 {
-	//allOff, trigWait, cuffTighten, pCtrl, cuffHold, cuffRelease
 	s1CloseS2Close, s1CloseS2Open, s1OpenS2Close, s1OpenS2Open
 };
 enum valveStates valveState = s1CloseS2Close;
 
 enum ctrlStates
 {
-	fillCuff, waitCycles, holdCuff, releaseCuff, dummyState
+	#if defined(ALGO_TYPE_PK_DET)
+		insertDelay, 
+	#endif
+	fillCuff, waitCycles, holdCuff, releaseCuff
 };
 
 struct senState
 {
 	enum rxStates state;
 	uint8_t sum, ctr, pIndex;
+	uint8_t tempPleath;
 }sen1State, sen2State;
 
 struct senData
@@ -89,12 +116,30 @@ void SendDispData(void);
 uint8_t CalcChkSum (uint8_t * buff, uint8_t len);
 void WriteEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
 void ReadEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, uint16_t dLen);
-
+void ManageResP(void);
+void PollSwitches(void);
 
 struct cBuff_t trigBuff;
-uint8_t trigFound = 0, prevPleath = 0, tempPleath = 0;
-uint8_t rising = 1;
-enum ctrlStates ctrlState = fillCuff;
+uint8_t trigFound = 0, prevPleath = 0;
+
+#ifndef ALGO_TYPE_PK_DET 
+	uint8_t rising = 1;
+#else
+	uint8_t rising = 0;
+	uint32_t prevCycleTime[3]={};
+	uint32_t avgCycleTime = 0, cycleTime = 0;
+#endif
+
+#if defined(CYCLE_AVG_DISP_EN)
+	uint32_t dispTick = 0;
+#endif
+
+#if defined(ALGO_TYPE_PK_DET)
+	enum ctrlStates ctrlState = insertDelay;
+#else
+	enum ctrlStates ctrlState = fillCuff;
+#endif
+
 enum ctrlStates nextCtrlState = waitCycles;
 
 /* Systick counter */
@@ -107,10 +152,20 @@ uint8_t dispPkt[150];
 Pdc *dispUartPdcBase;
 pdc_packet_t dispPdcPkt;
 
-uint32_t fillDur = 100, holdDur = 100, dummyDur = 600; 
+#ifndef CTRL_TYPE_PRESSURE
+	uint32_t fillDur = DEFAULT_FILL_DUR;
+#else
+	/* Cuff pressure regulation set point */
+	float pSetPt = DEFAULT_PRESSURE;
+#endif
+uint32_t holdDur = DEFAULT_DURATION, delayParam = DEFAULT_DELAY; 
+float resPVal = 0;
 
 int main (void)
 {
+	uint16_t temp = 0;
+	uint32_t tempCount = 0;
+	float p1Val = 0, p2Val = 0;
 	/* Insert system clock initialization code here (sysclk_init()). */
 	sysclk_init();
 	/* Initialize all peripherals */
@@ -119,52 +174,31 @@ int main (void)
 
 	InitPeripherals();
 
-	SetValveState(s1CloseS2Close);
+// 	SetValveState(s1OpenS2Open);
+// 	while(1);
 
-	/* Initialize pressure in reservoir */
-	tickCount = 0;
-	gpio_set_pin_high(PIN_AIR_PUMP_IDX);
-	while (tickCount<=60000);
-	//gpio_set_pin_low(PIN_AIR_PUMP_IDX);
-
-// 	trigFound = 1;
-// 	while(1)
+// 	gpio_set_pin_high(PIN_AIR_PUMP_IDX);
+// 	SetValveState(s1OpenS2Close);
+// 	while(p1Val<=3.0f)
 // 	{
-// 		ActivateValves();
+// 		ReadPressureSen(BOARD_TWI, ADDR_PSEN1, dispPkt);
+// 		temp = ((((uint16_t)dispPkt[0])<<8)| dispPkt[1]);
+// 		p1Val = ((float)temp/16383.0f)*PSEN1_MAXP;
 // 	}
+// 	SetValveState(s1CloseS2Close);
+// 	gpio_set_pin_low(PIN_AIR_PUMP_IDX);
 
-	/*dispPkt[0] = 'H';
-	dispPkt[1] = 'e';
-	dispPkt[2] = 'l';
-	dispPkt[3] = 'l';
-	dispPkt[4] = 'o';
-	dispPkt[5] = '\r';
-	dispPkt[6] = '\n';*/
-	
-	/*while(1)
-	{
-		//gpio_set_pin_low(PIO_PA16_IDX);
-		
-		//Transmit 7 Bytes using PDC
-// 		dispPdcPkt.ul_addr = (uint32_t) dispPkt;
-// 		dispPdcPkt.ul_size = 7;
-// 		pdc_tx_init(dispUartPdcBase, &dispPdcPkt, NULL);
-
-		//ReadPressureSen(BOARD_TWI, ADDR_PSEN1, dispPkt);
-		//ReadEEPROM(BOARD_TWI,0x50,0x00,dispPkt,4);
-		//WriteEEPROM(BOARD_TWI,0x50,0x00,dispPkt,4);
-
-		gpio_set_pin_high(PIO_PA16_IDX);
-		gpio_set_pin_high(PIN_INAVALVE1_IDX);
-		gpio_set_pin_low(PIN_INAVALVE2_IDX);
+	#ifndef ALGO_TEST_MODE_EN
+		/* Initialize pressure in reservoir */
+		SetValveState(s1CloseS2Close);
 		gpio_set_pin_high(PIN_AIR_PUMP_IDX);
-		delay_ms(5000);
-		gpio_set_pin_low(PIN_INAVALVE1_IDX);
-		gpio_set_pin_high(PIN_INAVALVE2_IDX);
-		gpio_set_pin_low(PIN_AIR_PUMP_IDX);
-		gpio_set_pin_low(PIO_PA16_IDX);
-		delay_ms(5000);
-	}*/
+		while(p2Val<=5.0f)
+		{
+			ReadPressureSen(BOARD_TWI, ADDR_PSEN2, dispPkt);
+			temp = ((((uint16_t)dispPkt[0])<<8)| dispPkt[1]);
+			p2Val = ((float)temp/16383.0f)*PSEN2_MAXP;
+		}
+	#endif
 
 	/* Init. variables */
 	memset(&sen1Data, 0, sizeof(struct senData));
@@ -182,12 +216,16 @@ int main (void)
 		/* Toggle LED GPIO */
 		//gpio_toggle_pin(PIO_PC23_IDX);
 
-		/* Emergency switch action */
+		/* Manage reservoir pressure */
+		ManageResP();
+		
+		/* Emergency switch action already defined in ISR */
 		
 		/* Call frequently to update next pointer in PDC */
 		SenPdcManageBuff();
 
 		/* Poll switches */
+		PollSwitches();
 
 		/* Collect sensor 1 data and run trigger calculation */
 		if(SenGetRxBytes(1)>5)
@@ -220,6 +258,29 @@ int main (void)
 void SysTick_Handler(void)
 {
 	tickCount++;
+	cycleTime++;
+	#if defined(CYCLE_AVG_DISP_EN)
+		dispTick++;
+	#endif
+}
+
+/**
+ *  \brief Handler for External interrupt on SOS Pin.
+ *
+ *  Process External Interrupt Event.
+ *  Open all valves and turn off the compressor.
+ *  Hang up in infinite loop until next reset.
+ */
+
+void SosIntHandler(uint32_t ul_id, uint32_t ul_mask)
+{
+	if (PIN_SW_SOS_PIO_ID != ul_id || PIN_SW_SOS_MASK != ul_mask)
+		return;
+
+	SetValveState(s1OpenS2Open);
+	gpio_set_pin_low(PIN_AIR_PUMP_IDX);
+
+	while(1);
 }
 
 void InitPeripherals(void)
@@ -362,7 +423,7 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 				break;
 			case q2:
 				//Pleath Reading
-				tempPleath = data;
+				sen1State.tempPleath = data;
 				sen1State.state = q3;
 				sen1State.sum += data;
 				sen1State.pIndex = 3;
@@ -386,13 +447,13 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 				if(data==sen1State.sum)
 				{
 					/* Write data value to pleath circular buffer */
-					CBuffWriteByte(&sen1Data.pleathBuff, tempPleath);
+					CBuffWriteByte(&sen1Data.pleathBuff, sen1State.tempPleath);
 					//CBuffWriteByte(&trigBuff, tempPleath);
 
-					if ((!trigFound) && (GetTrigger(tempPleath)))
+					if ((!trigFound) && (GetTrigger(sen1State.tempPleath)))
 					{
 						/* Write data value to trigger circular buffer */
-						CBuffWriteByte(&trigBuff, tempPleath);
+						CBuffWriteByte(&trigBuff, sen1State.tempPleath);
 						/* This flag will be reset in the pressure control loop */
 						trigFound = 1;
 					}
@@ -432,13 +493,10 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 				else if(sen1State.ctr == 4)
 				{
 					sen1Data.hrLsb = data;
-					//hrtRate |= data;
 				}
 				else if(sen1State.ctr == 9)
 				{
 					sen1Data.spo2 = data;
-					//spo2 = data;
-					//disp = 1;
 				}
 				else if(sen1State.ctr==120)
 				{
@@ -449,7 +507,83 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 	}
 	else
 	{
-		
+		switch(sen2State.state)
+ 		{
+			case q0:
+				if(data==0x01)
+				{
+					sen2State.state = q1;
+					sen2State.sum = 0x01;
+				}
+				break;
+			case q1:
+				if((data>127)&&BIT_IS_SET(data,0))
+				{
+					sen2State.state = q2;
+					sen2State.sum += data;
+				}
+				else
+				{
+					sen2State.state = q0;
+				}
+				break;
+			case q2:
+				//Pleath Reading
+				sen2State.tempPleath = data;
+				sen2State.state = q3;
+				sen2State.sum += data;
+				sen2State.pIndex = 3;
+				break;
+			case q3:
+				if(data<127)
+				{
+					//HRMSB
+					//hrtRate = ((uint16_t)(data&0x03))<<8;
+					sen2Data.hrMsb = data;
+					sen2State.state = q4;
+					sen2State.sum += data;
+				}
+				else
+				{
+					sen2State.state = q0;
+				}
+				break;
+			case q4:
+				/* If Checksum matched */
+				if(data==sen2State.sum)
+				{
+					/* Write data value to pleath circular buffer */
+					CBuffWriteByte(&sen2Data.pleathBuff, sen2State.tempPleath);
+					sen2State.state = q5;
+					sen2State.ctr = 0;
+				}
+				else
+				{
+					sen2State.state = q0;
+				}
+				break;
+			case q5:
+				sen2State.ctr++;
+				if(sen2State.ctr == sen2State.pIndex)
+				{
+					/* Write data value to pleath circular buffer */
+					CBuffWriteByte(&sen2Data.pleathBuff, data);
+					sen2State.pIndex += 5;
+				}
+				else if(sen2State.ctr == 4)
+				{
+					sen2Data.hrLsb = data;
+				}
+				else if(sen2State.ctr == 9)
+				{
+					sen2Data.spo2 = data;
+				}
+				else if(sen2State.ctr==120)
+				{
+					sen2State.state = q0;
+				}
+				break;
+ 		}
 	}
 }
 
@@ -458,9 +592,8 @@ uint8_t GetTrigger(uint8_t currPleath)
 	int8_t diff = (int8_t)prevPleath - (int8_t)currPleath;
 	static uint8_t ctr = 0;
 	
-	//if (!trigFound)
-	{
-		/* Find trigger during rising ppg signal */
+	#ifndef ALGO_TYPE_PK_DET
+		/* Find trigger during rising ppg signal (no peak detect) */
 		if(rising)
 		{
 			if ((diff <= -PLEATH_DIFF_THRESHOLD) && (!trigFound))
@@ -489,23 +622,117 @@ uint8_t GetTrigger(uint8_t currPleath)
 				ctr = 0;
 			}
 		}
-		prevPleath = currPleath;
-	}
+	#else
+		/* Use peak detection algorithm for trigger calculation */
+		if(rising)
+		{
+			if(diff > 0)
+			{
+				ctr += 1;
+				if(ctr >= PLEATH_DIFF_CYCLES)
+				{
+					/* This flag will be reset in the pressure control loop */
+					trigFound = 1;
+					rising = 0;
+					ctr = 0;
+
+					avgCycleTime = (prevCycleTime[0]+prevCycleTime[1]+prevCycleTime[2]+cycleTime)>>2;
+					prevCycleTime[0] = prevCycleTime[1];
+					prevCycleTime[1] = prevCycleTime[2];
+					prevCycleTime[2] = cycleTime;
+					cycleTime = 0;
+				}
+			}
+			else
+			{
+				ctr = 0;
+			}
+		}
+		else
+		{
+			if(diff <= -PLEATH_DIFF_THRESHOLD)
+			{
+				ctr += 1;
+				if(ctr >= PLEATH_DIFF_CYCLES)
+				{
+					rising = 1;
+					ctr = 0;
+				}
+			}
+			else
+			{
+				ctr = 0;
+			}
+		}
+	#endif
+	
+	prevPleath = currPleath;
 	return trigFound;
 }
 
 void ActivateValves(void)
 {
+	#ifdef CTRL_TYPE_PRESSURE
+		uint16_t temp = 0;
+		float pVal = 0;
+		uint8_t pBuff[3];
+	#endif
+
 	if(trigFound)
 	{
 		switch(ctrlState)
 		{
+			#if defined(ALGO_TYPE_PK_DET) 
+			case insertDelay:
+				tickDur = avgCycleTime - delayParam;
+				/* This indicates overflow occurred */
+				if(tickDur>10000)
+				{
+					tickDur = 0;
+					trigFound = 0;
+				}
+				else
+				{
+					tickCount = 0;
+					tickDur = delayParam;
+					ctrlState = waitCycles;
+					nextCtrlState = fillCuff;
+				}
+				break;
+			#endif
 			case fillCuff:
-				SetValveState(s1OpenS2Close);
-				tickCount = 0;
-				tickDur = fillDur;
-				ctrlState = waitCycles;
-				nextCtrlState = holdCuff;
+				#ifndef CTRL_TYPE_PRESSURE
+					/* If operating in time control mode */
+					#ifndef ALGO_TEST_MODE_EN
+						SetValveState(s1OpenS2Close);
+					#endif
+					tickCount = 0;
+					tickDur = fillDur;
+					ctrlState = waitCycles;
+					nextCtrlState = holdCuff;
+				#else
+					#ifndef ALGO_TEST_MODE_EN
+						/* If operating in pressure control mode */
+						ReadPressureSen(BOARD_TWI, ADDR_PSEN1, pBuff);
+						temp = ((((uint16_t)pBuff[0])<<8)| pBuff[1]);
+						pVal = ((float)temp/16383.0f)*PSEN1_MAXP;
+						if((pVal>=(pSetPt-0.5f)) && (pVal<=(pSetPt+0.5f)))
+						{
+							SetValveState(s1CloseS2Close);
+							ctrlState = holdCuff;
+						}
+						else if(pVal<pSetPt)
+						{
+							SetValveState(s1OpenS2Close);
+						}
+						else if(pVal>pSetPt)
+						{
+							SetValveState(s1CloseS2Open);
+						}
+					#else
+						ctrlState = holdCuff;	
+					#endif
+				#endif
 				break;
 			case waitCycles:
 				if(tickCount>=tickDur)
@@ -516,22 +743,24 @@ void ActivateValves(void)
 				}
 				break;
 			case holdCuff:
-				SetValveState(s1CloseS2Close);
+				#ifndef ALGO_TEST_MODE_EN
+					SetValveState(s1CloseS2Close);
+				#endif
+				tickCount = 0;
 				tickDur = holdDur;
 				ctrlState = waitCycles;
 				nextCtrlState = releaseCuff;
 				break;
 			case releaseCuff:
-				SetValveState(s1CloseS2Open);
-				ctrlState = fillCuff;
-				/*ctrlState = dummyState;
-				tickDur = dummyDur;
-				ctrlState = waitCycles;
-				nextCtrlState = dummyState;*/
+				#ifndef ALGO_TEST_MODE_EN
+					SetValveState(s1CloseS2Open);
+				#endif
+				#ifndef ALGO_TYPE_PK_DET
+					ctrlState = fillCuff;
+				#else
+					ctrlState = insertDelay; 
+				#endif
 				trigFound = 0;
-				break;
-			case dummyState:
-				ctrlState = fillCuff;
 				break;
 			default:
 				break;
@@ -564,8 +793,6 @@ void SetValveState(enum valveStates st)
 
 void SendDispData(void)
 {
-	uint8_t readS2 = 0;
-
 	/* If previous transfer not complete, return */
 	#if defined(BOARD_XPLND)
 		if (!(uart_get_status(DISP_UART) & UART_SR_ENDTX)) 
@@ -576,419 +803,438 @@ void SendDispData(void)
 		return;
 	}
 
-	if(CBuffGetRxBytes(&sen2Data.pleathBuff) >= 25)
-	{
-		readS2 = 1;
-	}
+	#ifndef CYCLE_AVG_DISP_EN
+		uint8_t readS2 = 0;
 
-	/* Check if data in sen1Pleath buff >= 25 */
-	if(CBuffGetRxBytes(&sen1Data.pleathBuff) > 25 && CBuffGetRxBytes(&trigBuff) > 25)
-	{
-		/* Frame 1*/
-		dispPkt[0] = '$';
-		/* Sensor Status */
-		dispPkt[1] = '1';
-		/* Sensor 1 Pleath Data */
-		dispPkt[2] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[3] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[4] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[4] = 0;
-		/* Checksum */
-		dispPkt[5] = CalcChkSum(&dispPkt[0],5);
+		if(CBuffGetRxBytes(&sen2Data.pleathBuff) > 25)
+		{
+			//readS2 = 1;
+			#warning "Sensor2 display commented"
+		}
 
-		/* Frame 2*/
-		dispPkt[6] = '$';
-		/* S1 Heart Rate MSB */
-		dispPkt[7] = sen1Data.hrMsb;
-		/* Sensor 1 Pleath Data */
-		dispPkt[8] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[9] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[10] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[10] = 0;
-		/* Checksum */
-		dispPkt[11] = CalcChkSum(&dispPkt[6],5);
+		/* Check if data in sen1Pleath buff >= 25 */
+		if(CBuffGetRxBytes(&sen1Data.pleathBuff) > 25 && CBuffGetRxBytes(&trigBuff) > 25)
+		{
+			/* Frame 1*/
+			dispPkt[0] = '$';
+			/* Sensor Status */
+			dispPkt[1] = '1';
+			/* Sensor 1 Pleath Data */
+			dispPkt[2] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[3] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[4] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[4] = 0;
+			/* Checksum */
+			dispPkt[5] = CalcChkSum(&dispPkt[0],5);
 
-		/* Frame 3*/
-		dispPkt[12] = '$';
-		/* S1 Heart Rate LSB */
-		dispPkt[13] = sen1Data.hrLsb;
-		/* Sensor 1 Pleath Data */
-		dispPkt[14] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[15] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[16] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[16] = 0;
-		/* Checksum */
-		dispPkt[17] = CalcChkSum(&dispPkt[12],5);
+			/* Frame 2*/
+			dispPkt[6] = '$';
+			/* S1 Heart Rate MSB */
+			dispPkt[7] = sen1Data.hrMsb;
+			/* Sensor 1 Pleath Data */
+			dispPkt[8] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[9] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[10] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[10] = 0;
+			/* Checksum */
+			dispPkt[11] = CalcChkSum(&dispPkt[6],5);
 
-		/* Frame 4*/
-		dispPkt[18] = '$';
-		/* S1 SpO2 */
-		dispPkt[19] = sen1Data.spo2;
-		/* Sensor 1 Pleath Data */
-		dispPkt[20] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[21] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[22] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[22] = 0;
-		/* Checksum */
-		dispPkt[23] = CalcChkSum(&dispPkt[18],5);
+			/* Frame 3*/
+			dispPkt[12] = '$';
+			/* S1 Heart Rate LSB */
+			dispPkt[13] = sen1Data.hrLsb;
+			/* Sensor 1 Pleath Data */
+			dispPkt[14] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[15] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[16] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[16] = 0;
+			/* Checksum */
+			dispPkt[17] = CalcChkSum(&dispPkt[12],5);
 
-		/* Frame 5*/
-		dispPkt[24] = '$';
-		/* S2 Heart Rate MSB */
-		dispPkt[25] = sen2Data.hrMsb;
-		/* Sensor 1 Pleath Data */
-		dispPkt[26] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[27] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[28] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[28] = 0;
-		/* Checksum */
-		dispPkt[29] = CalcChkSum(&dispPkt[24],5);
+			/* Frame 4*/
+			dispPkt[18] = '$';
+			/* S1 SpO2 */
+			dispPkt[19] = sen1Data.spo2;
+			/* Sensor 1 Pleath Data */
+			dispPkt[20] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[21] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[22] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[22] = 0;
+			/* Checksum */
+			dispPkt[23] = CalcChkSum(&dispPkt[18],5);
 
-		/* Frame 6*/
-		dispPkt[30] = '$';
-		/* S2 Heart Rate LSB */
-		dispPkt[31] = sen2Data.hrLsb;
-		/* Sensor 1 Pleath Data */
-		dispPkt[32] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[33] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[34] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[34] = 0;
-		/* Checksum */
-		dispPkt[35] = CalcChkSum(&dispPkt[30],5);
+			/* Frame 5*/
+			dispPkt[24] = '$';
+			/* S2 Heart Rate MSB */
+			dispPkt[25] = sen2Data.hrMsb;
+			/* Sensor 1 Pleath Data */
+			dispPkt[26] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[27] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[28] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[28] = 0;
+			/* Checksum */
+			dispPkt[29] = CalcChkSum(&dispPkt[24],5);
 
-		/* Frame 7*/
-		dispPkt[36] = '$';
-		/* S2 SpO2 */
-		dispPkt[37] = sen2Data.spo2;
-		/* Sensor 1 Pleath Data */
-		dispPkt[38] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[39] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[40] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[40] = 0;
-		/* Checksum */
-		dispPkt[41] = CalcChkSum(&dispPkt[36],5);
+			/* Frame 6*/
+			dispPkt[30] = '$';
+			/* S2 Heart Rate LSB */
+			dispPkt[31] = sen2Data.hrLsb;
+			/* Sensor 1 Pleath Data */
+			dispPkt[32] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[33] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[34] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[34] = 0;
+			/* Checksum */
+			dispPkt[35] = CalcChkSum(&dispPkt[30],5);
 
-		/* Frame 8*/
-		dispPkt[42] = '$';
-		/* Pressure Set Point */
-		dispPkt[43] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[44] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[45] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[46] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[46] = 0;
-		/* Checksum */
-		dispPkt[47] = CalcChkSum(&dispPkt[42],5);
+			/* Frame 7*/
+			dispPkt[36] = '$';
+			/* S2 SpO2 */
+			dispPkt[37] = sen2Data.spo2;
+			/* Sensor 1 Pleath Data */
+			dispPkt[38] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[39] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[40] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[40] = 0;
+			/* Checksum */
+			dispPkt[41] = CalcChkSum(&dispPkt[36],5);
 
-		/* Frame 9*/
-		dispPkt[48] = '$';
-		/* Trigger Delay */
-		dispPkt[49] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[50] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[51] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[52] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[52] = 0;
-		/* Checksum */
-		dispPkt[53] = CalcChkSum(&dispPkt[48],5);
+			/* Frame 8*/
+			dispPkt[42] = '$';
+			/* Pressure Set Point */
+			dispPkt[43] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[44] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[45] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[46] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[46] = 0;
+			/* Checksum */
+			dispPkt[47] = CalcChkSum(&dispPkt[42],5);
 
-		/* Frame 10 */
-		dispPkt[54] = '$';
-		/* Cuff Hold Duration */
-		dispPkt[55] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[56] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[57] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[58] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[58] = 0;
-		/* Checksum */
-		dispPkt[59] = CalcChkSum(&dispPkt[54],5);
+			/* Frame 9*/
+			dispPkt[48] = '$';
+			/* Trigger Delay */
+			dispPkt[49] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[50] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[51] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[52] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[52] = 0;
+			/* Checksum */
+			dispPkt[53] = CalcChkSum(&dispPkt[48],5);
 
-		/* Frame 11 */
-		dispPkt[60] = '$';
-		/* Cuff Pressure MSB */
-		dispPkt[61] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[62] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[63] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[64] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[64] = 0;
-		/* Checksum */
-		dispPkt[65] = CalcChkSum(&dispPkt[60],5);
+			/* Frame 10 */
+			dispPkt[54] = '$';
+			/* Cuff Hold Duration */
+			dispPkt[55] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[56] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[57] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[58] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[58] = 0;
+			/* Checksum */
+			dispPkt[59] = CalcChkSum(&dispPkt[54],5);
 
-		/* Frame 12 */
-		dispPkt[66] = '$';
-		/* Cuff Pressure LSB */
-		dispPkt[67] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[68] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[69] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[70] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[70] = 0;
-		/* Checksum */
-		dispPkt[71] = CalcChkSum(&dispPkt[66],5);
+			/* Frame 11 */
+			dispPkt[60] = '$';
+			/* Cuff Pressure MSB */
+			dispPkt[61] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[62] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[63] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[64] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[64] = 0;
+			/* Checksum */
+			dispPkt[65] = CalcChkSum(&dispPkt[60],5);
 
-		/* Frame 13 */
-		dispPkt[72] = '$';
-		/* Reservoir Pressure MSB */
-		dispPkt[73] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[74] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[75] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[76] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[76] = 0;
-		/* Checksum */
-		dispPkt[77] = CalcChkSum(&dispPkt[72],5);
+			/* Frame 12 */
+			dispPkt[66] = '$';
+			/* Cuff Pressure LSB */
+			dispPkt[67] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[68] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[69] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[70] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[70] = 0;
+			/* Checksum */
+			dispPkt[71] = CalcChkSum(&dispPkt[66],5);
 
-		/* Frame 14 */
-		dispPkt[78] = '$';
-		/* Reservoir Pressure LSB */
-		dispPkt[79] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[80] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[81] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[82] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[82] = 0;
-		/* Checksum */
-		dispPkt[83] = CalcChkSum(&dispPkt[78],5);
+			/* Frame 13 */
+			dispPkt[72] = '$';
+			/* Reservoir Pressure MSB */
+			dispPkt[73] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[74] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[75] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[76] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[76] = 0;
+			/* Checksum */
+			dispPkt[77] = CalcChkSum(&dispPkt[72],5);
 
-		/* Frame 15 */
-		dispPkt[84] = '$';
-		/* Blank */
-		dispPkt[85] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[86] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[87] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[88] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[88] = 0;
-		/* Checksum */
-		dispPkt[89] = CalcChkSum(&dispPkt[84],5);
+			/* Frame 14 */
+			dispPkt[78] = '$';
+			/* Reservoir Pressure LSB */
+			dispPkt[79] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[80] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[81] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[82] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[82] = 0;
+			/* Checksum */
+			dispPkt[83] = CalcChkSum(&dispPkt[78],5);
 
-		/* Frame 16 */
-		dispPkt[90] = '$';
-		/* Blank */
-		dispPkt[91] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[92] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[93] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[94] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[94] = 0;
-		/* Checksum */
-		dispPkt[95] = CalcChkSum(&dispPkt[90],5);
+			/* Frame 15 */
+			dispPkt[84] = '$';
+			/* Blank */
+			dispPkt[85] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[86] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[87] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[88] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[88] = 0;
+			/* Checksum */
+			dispPkt[89] = CalcChkSum(&dispPkt[84],5);
 
-		/* Frame 17 */
-		dispPkt[96] = '$';
-		/* Blank */
-		dispPkt[97] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[98] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[99] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[100] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[100] = 0;
-		/* Checksum */
-		dispPkt[101] = CalcChkSum(&dispPkt[96],5);
+			/* Frame 16 */
+			dispPkt[90] = '$';
+			/* Blank */
+			dispPkt[91] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[92] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[93] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[94] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[94] = 0;
+			/* Checksum */
+			dispPkt[95] = CalcChkSum(&dispPkt[90],5);
 
-		/* Frame 18 */
-		dispPkt[102] = '$';
-		/* Blank */
-		dispPkt[103] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[104] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[105] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[106] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[106] = 0;
-		/* Checksum */
-		dispPkt[107] = CalcChkSum(&dispPkt[102],5);
+			/* Frame 17 */
+			dispPkt[96] = '$';
+			/* Blank */
+			dispPkt[97] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[98] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[99] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[100] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[100] = 0;
+			/* Checksum */
+			dispPkt[101] = CalcChkSum(&dispPkt[96],5);
 
-		/* Frame 19 */
-		dispPkt[108] = '$';
-		/* Blank */
-		dispPkt[109] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[110] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[111] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[112] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[112] = 0;
-		/* Checksum */
-		dispPkt[113] = CalcChkSum(&dispPkt[108],5);
+			/* Frame 18 */
+			dispPkt[102] = '$';
+			/* Blank */
+			dispPkt[103] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[104] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[105] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[106] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[106] = 0;
+			/* Checksum */
+			dispPkt[107] = CalcChkSum(&dispPkt[102],5);
 
-		/* Frame 20 */
-		dispPkt[114] = '$';
-		/* Blank */
-		dispPkt[115] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[116] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[117] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[118] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[118] = 0;
-		/* Checksum */
-		dispPkt[119] = CalcChkSum(&dispPkt[114],5);
+			/* Frame 19 */
+			dispPkt[108] = '$';
+			/* Blank */
+			dispPkt[109] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[110] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[111] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[112] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[112] = 0;
+			/* Checksum */
+			dispPkt[113] = CalcChkSum(&dispPkt[108],5);
 
-		/* Frame 21 */
-		dispPkt[120] = '$';
-		/* Blank */
-		dispPkt[121] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[122] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[123] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[124] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[124] = 0;
-		/* Checksum */
-		dispPkt[125] = CalcChkSum(&dispPkt[120],5);
+			/* Frame 20 */
+			dispPkt[114] = '$';
+			/* Blank */
+			dispPkt[115] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[116] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[117] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[118] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[118] = 0;
+			/* Checksum */
+			dispPkt[119] = CalcChkSum(&dispPkt[114],5);
 
-		/* Frame 22 */
-		dispPkt[126] = '$';
-		/* Blank */
-		dispPkt[127] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[128] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[129] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[130] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[130] = 0;
-		/* Checksum */
-		dispPkt[131] = CalcChkSum(&dispPkt[126],5);
+			/* Frame 21 */
+			dispPkt[120] = '$';
+			/* Blank */
+			dispPkt[121] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[122] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[123] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[124] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[124] = 0;
+			/* Checksum */
+			dispPkt[125] = CalcChkSum(&dispPkt[120],5);
 
-		/* Frame 23 */
-		dispPkt[132] = '$';
-		/* Blank */
-		dispPkt[133] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[134] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[135] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[136] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[136] = 0;
-		/* Checksum */
-		dispPkt[137] = CalcChkSum(&dispPkt[132],5);
+			/* Frame 22 */
+			dispPkt[126] = '$';
+			/* Blank */
+			dispPkt[127] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[128] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[129] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[130] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[130] = 0;
+			/* Checksum */
+			dispPkt[131] = CalcChkSum(&dispPkt[126],5);
+
+			/* Frame 23 */
+			dispPkt[132] = '$';
+			/* Blank */
+			dispPkt[133] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[134] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[135] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[136] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[136] = 0;
+			/* Checksum */
+			dispPkt[137] = CalcChkSum(&dispPkt[132],5);
 		
-		/* Frame 24 */
-		dispPkt[138] = '$';
-		/* Blank */
-		dispPkt[139] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[140] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[141] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[142] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[142] = 0;
-		/* Checksum */
-		dispPkt[143] = CalcChkSum(&dispPkt[138],5);
+			/* Frame 24 */
+			dispPkt[138] = '$';
+			/* Blank */
+			dispPkt[139] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[140] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[141] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[142] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[142] = 0;
+			/* Checksum */
+			dispPkt[143] = CalcChkSum(&dispPkt[138],5);
 
-		/* Frame 25 */
-		dispPkt[144] = '$';
-		/* Blank */
-		dispPkt[145] = '0';
-		/* Sensor 1 Pleath Data */
-		dispPkt[146] = CBuffReadByte(&sen1Data.pleathBuff);
-		/* Trigger Data */
-		dispPkt[147] = CBuffReadByte(&trigBuff);
-		/* Sensor 2 Pleath Data */
-		if(readS2)
-			dispPkt[148] = CBuffReadByte(&sen2Data.pleathBuff);
-		else
-			dispPkt[148] = 0;
-		/* Checksum */
-		dispPkt[149] = CalcChkSum(&dispPkt[144],5);
+			/* Frame 25 */
+			dispPkt[144] = '$';
+			/* Blank */
+			dispPkt[145] = '0';
+			/* Sensor 1 Pleath Data */
+			dispPkt[146] = CBuffReadByte(&sen1Data.pleathBuff);
+			/* Trigger Data */
+			dispPkt[147] = CBuffReadByte(&trigBuff);
+			/* Sensor 2 Pleath Data */
+			if(readS2)
+				dispPkt[148] = CBuffReadByte(&sen2Data.pleathBuff);
+			else
+				dispPkt[148] = 0;
+			/* Checksum */
+			dispPkt[149] = CalcChkSum(&dispPkt[144],5);
 		
-		/* Initiate PDC Transfer for 150 bytes */
-		dispPdcPkt.ul_addr = (uint32_t) dispPkt;
-		dispPdcPkt.ul_size = 150;
-		pdc_tx_init(dispUartPdcBase, &dispPdcPkt, NULL);
-	}
+			/* Initiate PDC Transfer for 150 bytes */
+			dispPdcPkt.ul_addr = (uint32_t) dispPkt;
+			dispPdcPkt.ul_size = 150;
+			pdc_tx_init(dispUartPdcBase, &dispPdcPkt, NULL);
+		}
+	#else
+		#ifndef ALGO_TYPE_PK_DET
+			#warning "Invalid Algorithm selected..."
+		#else
+			if(dispTick>1000)
+			{
+				sprintf((char*)dispPkt,"Avg = %lu\r\n",avgCycleTime);
+				/* Initiate PDC Transfer to display avg cycle time */
+				dispPdcPkt.ul_addr = (uint32_t) dispPkt;
+				dispPdcPkt.ul_size = strlen((char*)dispPkt);
+				pdc_tx_init(dispUartPdcBase, &dispPdcPkt, NULL);
+				dispTick = 0;
+			}
+		#endif
+	#endif
 }
 
 uint8_t CalcChkSum (uint8_t * buff, uint8_t len)
@@ -1031,4 +1277,60 @@ void ReadEEPROM(Twi * Port, uint8_t chipAddr, uint8_t memPage, uint8_t *dPkt, ui
 	/* No of bytes to read */
 	pkt.length = dLen;
 	twi_master_read(Port, &pkt);
+}
+
+void ManageResP(void)
+{
+	#ifndef ALGO_TEST_MODE_EN
+		uint16_t temp;
+		uint8_t pBuff[3];
+
+		ReadPressureSen(BOARD_TWI, ADDR_PSEN2, pBuff);
+		temp = ((((uint16_t)pBuff[0])<<8)| pBuff[1]);
+		resPVal = ((float)temp/16383.0f)*PSEN2_MAXP;
+	
+		if(resPVal>=MAX_RESERVOIR_P)
+		{
+			/* Turn off the compressor */
+			gpio_set_pin_low(PIN_AIR_PUMP_IDX);		
+		}
+		else if(resPVal<CUTOFF_RESERVOIR_P)
+		{
+			/* Turn on the compressor */
+			gpio_set_pin_high(PIN_AIR_PUMP_IDX);
+		}
+	#endif
+}
+
+void PollSwitches(void)
+{
+	#if defined(BOARD_NIRA91) 
+		if(gpio_pin_is_low(PIN_SW_PRESS_UP_IDX))
+		{
+			
+		}
+		else if(gpio_pin_is_low(PIN_SW_PRESS_DN_IDX))
+		{
+		
+		}
+		else if(gpio_pin_is_low(PIN_SW_DURATION_UP_IDX))
+		{
+
+		}
+		else if(gpio_pin_is_low(PIN_SW_DURATION_DN_IDX))
+		{
+
+		}
+		else if(gpio_pin_is_low(PIN_SW_DELAY_UP_IDX))
+		{
+		
+		}
+		#ifndef BOARD_NIRA91
+			/* Delay down pin cannot be utilized as input as this pin is short with DISP UART RX (Schematic mistake) */
+			else if(gpio_pin_is_low(PIN_SW_DELAY_DN_IDX))
+			{
+				
+			}
+		#endif
+	#endif
 }

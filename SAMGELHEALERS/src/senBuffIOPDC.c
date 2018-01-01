@@ -9,8 +9,8 @@
  #include "senBuffIOPDC.h"
 
  /* Buffers to hold received data from sensor1 and sensor 2*/
- uint8_t sen1Buff[SEN_USART_BUFF_SIZE]={};//, sen1Buff2[SEN_USART_BUFF_SIZE]={};
- uint8_t sen2Buff[SEN_USART_BUFF_SIZE]={};//, sen2Buff2[SEN_USART_BUFF_SIZE]={};
+ uint8_t sen1Buff[SEN_USART_BUFF_SIZE]={};
+ uint8_t sen2Buff[SEN_USART_BUFF_SIZE]={};
 
  /* These pointers point to the buffer which is to be used for processing. */
  //uint8_t *sen1Bptr, *sen2Bptr;
@@ -103,6 +103,8 @@
 		pdc_rx_init(sen1PdcBase, NULL, &pdcPkt);
 	}
 	sen1Wptr = SEN_USART_BUFF_SIZE - pdc_read_rx_counter(sen1PdcBase);
+	if(sen1Wptr>=SEN_USART_BUFF_SIZE)
+		sen1Wptr = 0;
 
 	/* If PDC receive next pointer is 0 */
 	if(pdc_read_rx_next_counter(sen2PdcBase)==0)
@@ -115,6 +117,8 @@
 		pdc_rx_init(sen2PdcBase, NULL, &pdcPkt);
 	}
 	sen2Wptr = SEN_USART_BUFF_SIZE - pdc_read_rx_counter(sen2PdcBase);
+	if(sen2Wptr>=SEN_USART_BUFF_SIZE)
+		sen2Wptr = 0;
  }
  
  /* Returns number of bytes in Rx buffer */

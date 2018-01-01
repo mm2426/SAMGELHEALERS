@@ -598,6 +598,9 @@
     <Compile Include="src\senBuffIOPDC.h">
       <SubType>compile</SubType>
     </Compile>
+    <Compile Include="src\testcodes.c">
+      <SubType>compile</SubType>
+    </Compile>
     <None Include="src\ASF\common\services\ioport\ioport.h">
       <SubType>compile</SubType>
     </None>

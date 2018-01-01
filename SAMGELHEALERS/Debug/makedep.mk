@@ -8,6 +8,8 @@ src\pressureSens.c
 
 src\senBuffIOPDC.c
 
+src\testcodes.c
+
 src\ASF\common\utils\stdio\read.c
 
 src\ASF\common\utils\stdio\write.c

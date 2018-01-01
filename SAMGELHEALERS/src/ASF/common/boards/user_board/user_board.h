@@ -47,14 +47,34 @@
 #define PINS_TWI0			(PIO_PA4A_TWCK0 | PIO_PA3A_TWD0)
 #define PINS_TWI0_FLAGS		(PIO_PERIPH_A | PIO_DEFAULT)
 
-/* Solenoid Valve Pins */
-#define PIN_INAVALVE1_IDX		PIO_PA13_IDX
-#define PIN_INAVALVE2_IDX		PIO_PA14_IDX
+#if defined(BOARD_NIRA91)
+	/* Solenoid Valve Pins */
+	#define PIN_INAVALVE1_IDX		PIO_PA13_IDX
+	#define PIN_INAVALVE2_IDX		PIO_PA14_IDX
 
-/* Air Pump SSRly */
-#define PIN_AIR_PUMP_IDX		PIO_PA24_IDX
+	/* Air Pump SSRly */
+	#define PIN_AIR_PUMP_IDX		PIO_PA24_IDX
 
-/* Debug LED Pin */
-#define PIN_DEBUGLED_IDX		PIO_PA16_IDX
+	/* Debug LED Pin */
+	#define PIN_DEBUGLED_IDX		PIO_PA16_IDX
+
+	/* Switch Pins */
+	#define PIN_SW_PRESS_UP_IDX		PIO_PB0_IDX
+	#define PIN_SW_PRESS_DN_IDX		PIO_PB1_IDX
+	#define PIN_SW_DURATION_UP_IDX	PIO_PB2_IDX
+	#define PIN_SW_DURATION_DN_IDX	PIO_PB3_IDX
+	#define PIN_SW_DELAY_UP_IDX		PIO_PA19_IDX
+	#ifndef BOARD_NIRA91
+		/* Delay down pin cannot be utilized as input as this pin is short with DISP UART RX (Schematic mistake) */
+		#define PIN_SW_DELAY_DN_IDX		PIO_PA22_IDX
+	#endif
+	#define PIN_SW_SOS_PIO			PIOA
+	#define PIN_SW_SOS_PIO_ID		ID_PIOA
+	#define PIN_SW_SOS_MASK			PIO_PA20
+	#define PIN_SW_SOS_IDX			PIO_PA20_IDX
+
+	void SosIntHandler(uint32_t ul_id, uint32_t ul_mask);
+
+#endif
 
 #endif // USER_BOARD_H

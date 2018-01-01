@@ -94,6 +94,7 @@ C_SRCS +=  \
 ../src/cBuff.c \
 ../src/pressureSens.c \
 ../src/senBuffIOPDC.c \
+../src/testcodes.c \
 ../src/ASF/common/utils/stdio/read.c \
 ../src/ASF/common/utils/stdio/write.c \
 ../src/ASF/common/services/serial/usart_serial.c \
@@ -125,6 +126,7 @@ OBJS +=  \
 src/cBuff.o \
 src/pressureSens.o \
 src/senBuffIOPDC.o \
+src/testcodes.o \
 src/ASF/common/utils/stdio/read.o \
 src/ASF/common/utils/stdio/write.o \
 src/ASF/common/services/serial/usart_serial.o \
@@ -149,6 +151,7 @@ OBJS_AS_ARGS +=  \
 src/cBuff.o \
 src/pressureSens.o \
 src/senBuffIOPDC.o \
+src/testcodes.o \
 src/ASF/common/utils/stdio/read.o \
 src/ASF/common/utils/stdio/write.o \
 src/ASF/common/services/serial/usart_serial.o \
@@ -173,6 +176,7 @@ C_DEPS +=  \
 src/cBuff.d \
 src/pressureSens.d \
 src/senBuffIOPDC.d \
+src/testcodes.d \
 src/ASF/common/utils/stdio/read.d \
 src/ASF/common/utils/stdio/write.d \
 src/ASF/common/services/serial/usart_serial.d \
@@ -197,6 +201,7 @@ C_DEPS_AS_ARGS +=  \
 src/cBuff.d \
 src/pressureSens.d \
 src/senBuffIOPDC.d \
+src/testcodes.d \
 src/ASF/common/utils/stdio/read.d \
 src/ASF/common/utils/stdio/write.d \
 src/ASF/common/services/serial/usart_serial.d \
@@ -232,6 +237,8 @@ LINKER_SCRIPT_DEP+=  \
 
 
 # AVR32/GNU C Compiler
+
+
 
 
 
