@@ -33,7 +33,7 @@
 	(a&(1<<b))
 
 /* Size of S1 and S2 pleath buffers */
-#define CBUFF_SIZE				100
+#define CBUFF_SIZE				200
 /* Rate of change (used in trigger calculation algo) */
 #define PLEATH_DIFF_THRESHOLD	3
 /* No of consecutive cycles (used in trigger calculation algo) */
@@ -45,22 +45,36 @@
 /* Enable algorithm test mode (disables valve operation) */
 //#define ALGO_TEST_MODE_EN		1
 /* Display average time between pleath cycles (disables sending of pleath data) */
-#define CYCLE_AVG_DISP_EN		1
+//#define CYCLE_AVG_DISP_EN		1
 /* Maximum pressure to be maintained in the reservoir */
-#define MAX_RESERVOIR_P			10.0f
-#define CUTOFF_RESERVOIR_P		9.5f
+#define MAX_RESERVOIR_P			9.5f
+#define CUTOFF_RESERVOIR_P		8.5f
 #ifndef CTRL_TYPE_PRESSURE
 	/* Default time required to fill the cuff */
 	#define DEFAULT_FILL_DUR	100	
 #else
 	/* Default pressure set point value in PSI */
-	#define DEFAULT_PRESSURE	4.0f
+	#define DEFAULT_PRESSURE	5.0f
 #endif
 /* Default Cuff hold duration in ms */
-#define DEFAULT_DURATION		100
+#define DEFAULT_DURATION		100 
 
 /* Default delay (to be subtracted from avg cycle time (when pk det.) / to be added after trigger found) in ms */
-#define DEFAULT_DELAY			100
+#define DEFAULT_DELAY			200
+
+#define MAX_PSET_POINT			6.0f
+#define MIN_PSET_POINT			1.5f
+#define MAX_HOLD_DUR			1000
+#define MIN_HOLD_DUR			0
+#define MAX_DELAY_DUR			2000
+#define MIN_DELAY_DUR			0
+
+/* Pressure increments set to 0.1 PSI */
+#define PRESSURE_INCR			0.1f
+/* Hold increments set to 5 ms */
+#define HOLD_INCR				5
+/* Delay increments set to 5 ms */
+#define DELAY_INCR				5
 
 /* System tick frequency in Hz. */
 #define SYS_TICK_FREQ			1000
@@ -171,27 +185,28 @@ int main (void)
 	/* Initialize all peripherals */
 	board_init();
 	delay_init(sysclk_get_cpu_hz());
+	
+	SetValveState(s1CloseS2Close);
+	gpio_set_pin_low(PIN_AIR_PUMP_IDX);
+	delay_ms(500);
 
 	InitPeripherals();
 
 // 	SetValveState(s1OpenS2Open);
 // 	while(1);
-
-// 	gpio_set_pin_high(PIN_AIR_PUMP_IDX);
-// 	SetValveState(s1OpenS2Close);
-// 	while(p1Val<=3.0f)
-// 	{
-// 		ReadPressureSen(BOARD_TWI, ADDR_PSEN1, dispPkt);
-// 		temp = ((((uint16_t)dispPkt[0])<<8)| dispPkt[1]);
-// 		p1Val = ((float)temp/16383.0f)*PSEN1_MAXP;
-// 	}
+	
 // 	SetValveState(s1CloseS2Close);
-// 	gpio_set_pin_low(PIN_AIR_PUMP_IDX);
-
+// 	while(1)
+// 	{
+// 		ReadPressureSen(BOARD_TWI, ADDR_PSEN2, dispPkt);
+// 		temp = ((((uint16_t)dispPkt[0])<<8)| dispPkt[1]);
+// 		p2Val = ((float)temp/16383.0f)*PSEN2_MAXP;
+// 	}
+		
 	#ifndef ALGO_TEST_MODE_EN
 		/* Initialize pressure in reservoir */
 		SetValveState(s1CloseS2Close);
-		gpio_set_pin_high(PIN_AIR_PUMP_IDX);
+/*		gpio_set_pin_high(PIN_AIR_PUMP_IDX);*/
 		while(p2Val<=5.0f)
 		{
 			ReadPressureSen(BOARD_TWI, ADDR_PSEN2, dispPkt);
@@ -200,7 +215,7 @@ int main (void)
 		}
 	#endif
 
-	/* Init. variables */
+	/* Init. variables */  
 	memset(&sen1Data, 0, sizeof(struct senData));
 	memset(&sen2Data, 0, sizeof(struct senData));
 	memset(&trigBuff, 0, sizeof(struct cBuff_t));
@@ -217,7 +232,7 @@ int main (void)
 		//gpio_toggle_pin(PIO_PC23_IDX);
 
 		/* Manage reservoir pressure */
-		ManageResP();
+		//ManageResP();
 		
 		/* Emergency switch action already defined in ISR */
 		
@@ -448,20 +463,42 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 				{
 					/* Write data value to pleath circular buffer */
 					CBuffWriteByte(&sen1Data.pleathBuff, sen1State.tempPleath);
-					//CBuffWriteByte(&trigBuff, tempPleath);
 
-					if ((!trigFound) && (GetTrigger(sen1State.tempPleath)))
-					{
-						/* Write data value to trigger circular buffer */
-						CBuffWriteByte(&trigBuff, sen1State.tempPleath);
-						/* This flag will be reset in the pressure control loop */
-						trigFound = 1;
-					}
-					else
-					{
-						/* Write 0 to trigger circular buffer */
-						CBuffWriteByte(&trigBuff, 0);
-					}
+					#ifndef ALGO_TYPE_PK_DET
+						if ((!trigFound) && (GetTrigger(sen1State.tempPleath)))
+						{
+							/* Write data value to trigger circular buffer */
+							CBuffWriteByte(&trigBuff, sen1State.tempPleath);
+							/* This flag will be reset in the pressure control loop */
+							trigFound = 1;
+						}
+						else
+						{
+							/* Write 0 to trigger circular buffer */
+							CBuffWriteByte(&trigBuff, 0);
+						}
+					#else
+						if(trigFound)
+						{
+							GetTrigger(sen1State.tempPleath);
+							/* Write 0 to trigger circular buffer */
+							CBuffWriteByte(&trigBuff, 0);
+						}
+						else
+						{
+							if(GetTrigger(sen1State.tempPleath))
+							{
+								/* Write data value to trigger circular buffer */
+								CBuffWriteByte(&trigBuff, sen1State.tempPleath);	
+							}
+							else
+							{
+								/* Write 0 to trigger circular buffer */
+								CBuffWriteByte(&trigBuff, 0);
+							}
+						}
+					#endif
+					
 					sen1State.state = q5;
 					sen1State.ctr = 0;
 				}
@@ -476,18 +513,40 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 				{
 					/* Write data value to pleath circular buffer */
 					CBuffWriteByte(&sen1Data.pleathBuff, data);
-					//CBuffWriteByte(&trigBuff, data);
-
-					if ((!trigFound) && (GetTrigger(data)))
-					{
-						/* Write data value to trigger circular buffer */
-						CBuffWriteByte(&trigBuff, data);
-					}
-					else
-					{
-						/* Write 0 to trigger circular buffer */
-						CBuffWriteByte(&trigBuff, 0);
-					}
+					
+					#ifndef ALGO_TYPE_PK_DET
+						if ((!trigFound) && (GetTrigger(data)))
+						{
+							/* Write data value to trigger circular buffer */
+							CBuffWriteByte(&trigBuff, data);
+						}
+						else
+						{
+							/* Write 0 to trigger circular buffer */
+							CBuffWriteByte(&trigBuff, 0);
+						}
+					#else
+						if(trigFound)
+						{
+							GetTrigger(data);
+							/* Write 0 to trigger circular buffer */
+							CBuffWriteByte(&trigBuff, 0);
+						}
+						else
+						{
+							if (GetTrigger(data))
+							{
+								/* Write data value to trigger circular buffer */
+								CBuffWriteByte(&trigBuff, data);
+							}
+							else
+							{
+								/* Write 0 to trigger circular buffer */
+								CBuffWriteByte(&trigBuff, 0);
+							}
+						}
+					#endif
+					
 					sen1State.pIndex += 5;
 				}
 				else if(sen1State.ctr == 4)
@@ -632,7 +691,8 @@ uint8_t GetTrigger(uint8_t currPleath)
 				if(ctr >= PLEATH_DIFF_CYCLES)
 				{
 					/* This flag will be reset in the pressure control loop */
-					trigFound = 1;
+					if(!trigFound)
+						trigFound = 1;
 					rising = 0;
 					ctr = 0;
 
@@ -1307,29 +1367,41 @@ void PollSwitches(void)
 	#if defined(BOARD_NIRA91) 
 		if(gpio_pin_is_low(PIN_SW_PRESS_UP_IDX))
 		{
-			
+			pSetPt +=PRESSURE_INCR;
+			if(pSetPt>MAX_PSET_POINT)
+				pSetPt = MAX_PSET_POINT;
 		}
 		else if(gpio_pin_is_low(PIN_SW_PRESS_DN_IDX))
 		{
-		
+			pSetPt -=PRESSURE_INCR;
+			if(pSetPt<MIN_PSET_POINT)
+				pSetPt = MIN_PSET_POINT;
 		}
 		else if(gpio_pin_is_low(PIN_SW_DURATION_UP_IDX))
 		{
-
+			holdDur += HOLD_INCR;
+			if(holdDur>MAX_HOLD_DUR)
+				holdDur = MAX_HOLD_DUR;
 		}
 		else if(gpio_pin_is_low(PIN_SW_DURATION_DN_IDX))
 		{
-
+			holdDur -= HOLD_INCR;
+			if(holdDur>MIN_HOLD_DUR)
+				holdDur = MIN_HOLD_DUR;
 		}
 		else if(gpio_pin_is_low(PIN_SW_DELAY_UP_IDX))
 		{
-		
+			delayParam+=DELAY_INCR;
+			if(delayParam>MAX_DELAY_DUR)
+				delayParam = MAX_DELAY_DUR;
 		}
 		#ifndef BOARD_NIRA91
 			/* Delay down pin cannot be utilized as input as this pin is short with DISP UART RX (Schematic mistake) */
 			else if(gpio_pin_is_low(PIN_SW_DELAY_DN_IDX))
 			{
-				
+				delayParam-=DELAY_INCR;	
+				if(holdDur>MIN_DELAY_DUR)
+					holdDur = MIN_DELAY_DUR;
 			}
 		#endif
 	#endif
