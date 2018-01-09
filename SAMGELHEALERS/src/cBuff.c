@@ -30,7 +30,6 @@
  CBUFF_TYPE CBuffReadByte(struct cBuff_t *cbuff)
  {
 	CBUFF_TYPE retVal;
-
 	retVal = cbuff->buff[cbuff->rPtr++];
 	if(cbuff->rPtr>(CBUFF_SIZE-1))
 	{

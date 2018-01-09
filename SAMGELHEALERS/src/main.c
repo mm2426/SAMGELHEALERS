@@ -186,7 +186,7 @@ int main (void)
 	board_init();
 	delay_init(sysclk_get_cpu_hz());
 	
-	SetValveState(s1CloseS2Close);
+	SetValveState(s1OpenS2Open);
 	gpio_set_pin_low(PIN_AIR_PUMP_IDX);
 	delay_ms(500);
 
@@ -463,7 +463,7 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 				{
 					/* Write data value to pleath circular buffer */
 					CBuffWriteByte(&sen1Data.pleathBuff, sen1State.tempPleath);
-
+					
 					#ifndef ALGO_TYPE_PK_DET
 						if ((!trigFound) && (GetTrigger(sen1State.tempPleath)))
 						{
@@ -489,7 +489,7 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 							if(GetTrigger(sen1State.tempPleath))
 							{
 								/* Write data value to trigger circular buffer */
-								CBuffWriteByte(&trigBuff, sen1State.tempPleath);	
+								CBuffWriteByte(&trigBuff, sen1State.tempPleath);
 							}
 							else
 							{
@@ -513,7 +513,7 @@ void SenParseFrame(uint8_t senNo, uint8_t data)
 				{
 					/* Write data value to pleath circular buffer */
 					CBuffWriteByte(&sen1Data.pleathBuff, data);
-					
+															
 					#ifndef ALGO_TYPE_PK_DET
 						if ((!trigFound) && (GetTrigger(data)))
 						{
@@ -865,13 +865,13 @@ void SendDispData(void)
 
 	#ifndef CYCLE_AVG_DISP_EN
 		uint8_t readS2 = 0;
-
+		
 		if(CBuffGetRxBytes(&sen2Data.pleathBuff) > 25)
 		{
-			//readS2 = 1;
-			#warning "Sensor2 display commented"
+			readS2 = 1;
+			//#warning "Sensor2 display commented"
 		}
-
+		
 		/* Check if data in sen1Pleath buff >= 25 */
 		if(CBuffGetRxBytes(&sen1Data.pleathBuff) > 25 && CBuffGetRxBytes(&trigBuff) > 25)
 		{
