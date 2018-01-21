@@ -49,8 +49,8 @@
 
 #if defined(BOARD_NIRA91)
 	/* Solenoid Valve Pins */
-	#define PIN_INAVALVE1_IDX		PIO_PA13_IDX
-	#define PIN_INAVALVE2_IDX		PIO_PA14_IDX
+	#define PIN_INAVALVE1_IDX		PIO_PA14_IDX
+	#define PIN_INAVALVE2_IDX		PIO_PA13_IDX
 
 	/* Air Pump SSRly */
 	#define PIN_AIR_PUMP_IDX		PIO_PA24_IDX
@@ -64,9 +64,9 @@
 	#define PIN_SW_DURATION_UP_IDX	PIO_PB2_IDX
 	#define PIN_SW_DURATION_DN_IDX	PIO_PB3_IDX
 	#define PIN_SW_DELAY_UP_IDX		PIO_PA19_IDX
-	#ifndef BOARD_NIRA91
+	#if defined(BOARD_NIRA91A) && defined(BOARD_NIRA91)
 		/* Delay down pin cannot be utilized as input as this pin is short with DISP UART RX (Schematic mistake) */
-		#define PIN_SW_DELAY_DN_IDX		PIO_PA22_IDX
+		#define PIN_SW_DELAY_DN_IDX		PIO_PA23_IDX
 	#endif
 	#define PIN_SW_SOS_PIO			PIOA
 	#define PIN_SW_SOS_PIO_ID		ID_PIOA

@@ -56,7 +56,7 @@ void board_init(void)
 		gpio_configure_pin(PIN_SW_DURATION_UP_IDX, (PIO_INPUT | PIO_OPENDRAIN | PIO_DEBOUNCE));
 		gpio_configure_pin(PIN_SW_DURATION_DN_IDX, (PIO_INPUT | PIO_OPENDRAIN | PIO_DEBOUNCE));
 		gpio_configure_pin(PIN_SW_DELAY_UP_IDX, (PIO_INPUT | PIO_OPENDRAIN | PIO_DEBOUNCE));
-		#ifndef BOARD_NIRA91
+		#if defined(BOARD_NIRA91A) && defined(BOARD_NIRA91)
 			/* Delay down pin cannot be utilized as input as this pin is short with DISP UART RX (Schematic mistake) */
 			gpio_configure_pin(PIN_SW_DELAY_DN_IDX, (PIO_INPUT | PIO_OPENDRAIN | PIO_DEBOUNCE));
 		#endif

@@ -172,14 +172,18 @@ pdc_packet_t dispPdcPkt;
 	/* Cuff pressure regulation set point */
 	float pSetPt = DEFAULT_PRESSURE;
 #endif
-uint32_t holdDur = DEFAULT_DURATION, delayParam = DEFAULT_DELAY; 
-float resPVal = 0;
+/* Cuff hold duration and delay to be subtracted from avg. cycle time */
+int32_t holdDur = DEFAULT_DURATION, delayParam = DEFAULT_DELAY; 
+
+/* Buffers to hold RAW pressure values from PSEN1 & PSEN2 */
+uint8_t pBuff1[3], pBuff2[3];
 
 int main (void)
 {
+	/* Temp variables used to fill up initial pressure in reservoir */
 	uint16_t temp = 0;
-	uint32_t tempCount = 0;
-	float p1Val = 0, p2Val = 0;
+	float p2Val = 0;
+
 	/* Insert system clock initialization code here (sysclk_init()). */
 	sysclk_init();
 	/* Initialize all peripherals */
@@ -192,21 +196,10 @@ int main (void)
 
 	InitPeripherals();
 
-// 	SetValveState(s1OpenS2Open);
-// 	while(1);
-	
-// 	SetValveState(s1CloseS2Close);
-// 	while(1)
-// 	{
-// 		ReadPressureSen(BOARD_TWI, ADDR_PSEN2, dispPkt);
-// 		temp = ((((uint16_t)dispPkt[0])<<8)| dispPkt[1]);
-// 		p2Val = ((float)temp/16383.0f)*PSEN2_MAXP;
-// 	}
-		
 	#ifndef ALGO_TEST_MODE_EN
 		/* Initialize pressure in reservoir */
 		SetValveState(s1CloseS2Close);
-/*		gpio_set_pin_high(PIN_AIR_PUMP_IDX);*/
+		gpio_set_pin_high(PIN_AIR_PUMP_IDX);
 		while(p2Val<=5.0f)
 		{
 			ReadPressureSen(BOARD_TWI, ADDR_PSEN2, dispPkt);
@@ -232,7 +225,7 @@ int main (void)
 		//gpio_toggle_pin(PIO_PC23_IDX);
 
 		/* Manage reservoir pressure */
-		//ManageResP();
+		ManageResP();
 		
 		/* Emergency switch action already defined in ISR */
 		
@@ -735,7 +728,7 @@ void ActivateValves(void)
 	#ifdef CTRL_TYPE_PRESSURE
 		uint16_t temp = 0;
 		float pVal = 0;
-		uint8_t pBuff[3];
+		//uint8_t pBuff[3];
 	#endif
 
 	if(trigFound)
@@ -773,8 +766,8 @@ void ActivateValves(void)
 				#else
 					#ifndef ALGO_TEST_MODE_EN
 						/* If operating in pressure control mode */
-						ReadPressureSen(BOARD_TWI, ADDR_PSEN1, pBuff);
-						temp = ((((uint16_t)pBuff[0])<<8)| pBuff[1]);
+						ReadPressureSen(BOARD_TWI, ADDR_PSEN1, pBuff1);
+						temp = ((((uint16_t)pBuff1[0])<<8)| pBuff1[1]);
 						pVal = ((float)temp/16383.0f)*PSEN1_MAXP;
 						if((pVal>=(pSetPt-0.5f)) && (pVal<=(pSetPt+0.5f)))
 						{
@@ -989,8 +982,8 @@ void SendDispData(void)
 
 			/* Frame 8*/
 			dispPkt[42] = '$';
-			/* Pressure Set Point */
-			dispPkt[43] = '0';
+			/* Pressure Set Point expressed in UINT8 */
+			dispPkt[43] = ((pSetPt/MAX_PSET_POINT)*UINT8_MAX);
 			/* Sensor 1 Pleath Data */
 			dispPkt[44] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1005,8 +998,8 @@ void SendDispData(void)
 
 			/* Frame 9*/
 			dispPkt[48] = '$';
-			/* Trigger Delay */
-			dispPkt[49] = '0';
+			/* Trigger Delay MSB */
+			dispPkt[49] = (delayParam>>8)&0xFF;
 			/* Sensor 1 Pleath Data */
 			dispPkt[50] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1021,8 +1014,8 @@ void SendDispData(void)
 
 			/* Frame 10 */
 			dispPkt[54] = '$';
-			/* Cuff Hold Duration */
-			dispPkt[55] = '0';
+			/* Cuff Hold Duration expressed in UINT8, ( will work for max del val 1000, increment 5ms) */
+			dispPkt[55] = ((float)holdDur/(float)MAX_HOLD_DUR)*UINT8_MAX;
 			/* Sensor 1 Pleath Data */
 			dispPkt[56] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1038,7 +1031,7 @@ void SendDispData(void)
 			/* Frame 11 */
 			dispPkt[60] = '$';
 			/* Cuff Pressure MSB */
-			dispPkt[61] = '0';
+			dispPkt[61] = pBuff1[0];
 			/* Sensor 1 Pleath Data */
 			dispPkt[62] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1054,7 +1047,7 @@ void SendDispData(void)
 			/* Frame 12 */
 			dispPkt[66] = '$';
 			/* Cuff Pressure LSB */
-			dispPkt[67] = '0';
+			dispPkt[67] = pBuff1[1];
 			/* Sensor 1 Pleath Data */
 			dispPkt[68] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1070,7 +1063,7 @@ void SendDispData(void)
 			/* Frame 13 */
 			dispPkt[72] = '$';
 			/* Reservoir Pressure MSB */
-			dispPkt[73] = '0';
+			dispPkt[73] = pBuff2[0];
 			/* Sensor 1 Pleath Data */
 			dispPkt[74] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1086,7 +1079,7 @@ void SendDispData(void)
 			/* Frame 14 */
 			dispPkt[78] = '$';
 			/* Reservoir Pressure LSB */
-			dispPkt[79] = '0';
+			dispPkt[79] = pBuff2[1];
 			/* Sensor 1 Pleath Data */
 			dispPkt[80] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1101,8 +1094,8 @@ void SendDispData(void)
 
 			/* Frame 15 */
 			dispPkt[84] = '$';
-			/* Blank */
-			dispPkt[85] = '0';
+			/* Trigger Delay LSB */
+			dispPkt[85] = delayParam;
 			/* Sensor 1 Pleath Data */
 			dispPkt[86] = CBuffReadByte(&sen1Data.pleathBuff);
 			/* Trigger Data */
@@ -1343,10 +1336,10 @@ void ManageResP(void)
 {
 	#ifndef ALGO_TEST_MODE_EN
 		uint16_t temp;
-		uint8_t pBuff[3];
+		float resPVal = 0;
 
-		ReadPressureSen(BOARD_TWI, ADDR_PSEN2, pBuff);
-		temp = ((((uint16_t)pBuff[0])<<8)| pBuff[1]);
+		ReadPressureSen(BOARD_TWI, ADDR_PSEN2, pBuff2);
+		temp = ((((uint16_t)pBuff2[0])<<8)| pBuff2[1]);
 		resPVal = ((float)temp/16383.0f)*PSEN2_MAXP;
 	
 		if(resPVal>=MAX_RESERVOIR_P)
@@ -1364,45 +1357,74 @@ void ManageResP(void)
 
 void PollSwitches(void)
 {
+	static uint8_t swPressed = 0;
 	#if defined(BOARD_NIRA91) 
 		if(gpio_pin_is_low(PIN_SW_PRESS_UP_IDX))
 		{
-			pSetPt +=PRESSURE_INCR;
-			if(pSetPt>MAX_PSET_POINT)
-				pSetPt = MAX_PSET_POINT;
+			if(!swPressed)
+			{
+				pSetPt +=PRESSURE_INCR;
+				if(pSetPt>MAX_PSET_POINT)
+					pSetPt = MAX_PSET_POINT;
+				swPressed = 1;
+			}
 		}
 		else if(gpio_pin_is_low(PIN_SW_PRESS_DN_IDX))
 		{
-			pSetPt -=PRESSURE_INCR;
-			if(pSetPt<MIN_PSET_POINT)
-				pSetPt = MIN_PSET_POINT;
+			if(!swPressed)
+			{
+				pSetPt -=PRESSURE_INCR;
+				if(pSetPt<MIN_PSET_POINT)
+					pSetPt = MIN_PSET_POINT;
+				swPressed = 1;
+			}
 		}
 		else if(gpio_pin_is_low(PIN_SW_DURATION_UP_IDX))
 		{
-			holdDur += HOLD_INCR;
-			if(holdDur>MAX_HOLD_DUR)
-				holdDur = MAX_HOLD_DUR;
+			if(!swPressed)
+			{
+				holdDur += HOLD_INCR;
+				if(holdDur>MAX_HOLD_DUR)
+					holdDur = MAX_HOLD_DUR;
+				swPressed = 1;
+			}
 		}
 		else if(gpio_pin_is_low(PIN_SW_DURATION_DN_IDX))
 		{
-			holdDur -= HOLD_INCR;
-			if(holdDur>MIN_HOLD_DUR)
-				holdDur = MIN_HOLD_DUR;
+			if(!swPressed)
+			{
+				holdDur -= HOLD_INCR;
+				if(holdDur<MIN_HOLD_DUR)
+					holdDur = MIN_HOLD_DUR;
+				swPressed = 1;
+			}
 		}
 		else if(gpio_pin_is_low(PIN_SW_DELAY_UP_IDX))
 		{
-			delayParam+=DELAY_INCR;
-			if(delayParam>MAX_DELAY_DUR)
-				delayParam = MAX_DELAY_DUR;
+			if(!swPressed)
+			{
+				delayParam+=DELAY_INCR;
+				if(delayParam>MAX_DELAY_DUR)
+					delayParam = MAX_DELAY_DUR;
+				swPressed = 1;
+			}
 		}
-		#ifndef BOARD_NIRA91
-			/* Delay down pin cannot be utilized as input as this pin is short with DISP UART RX (Schematic mistake) */
+		#if defined(BOARD_NIRA91A) && defined(BOARD_NIRA91)
+			/* Delay down pin cannot be utilized as input in NIRA91 as this pin is short with DISP UART RX (Schematic mistake) */
 			else if(gpio_pin_is_low(PIN_SW_DELAY_DN_IDX))
 			{
-				delayParam-=DELAY_INCR;	
-				if(holdDur>MIN_DELAY_DUR)
-					holdDur = MIN_DELAY_DUR;
+				if(!swPressed)
+				{
+					delayParam-=DELAY_INCR;
+					if(delayParam<MIN_DELAY_DUR)
+						delayParam = MIN_DELAY_DUR;
+					swPressed = 1;
+				}
 			}
 		#endif
+		else
+		{
+			swPressed = 0;
+		}
 	#endif
 }
